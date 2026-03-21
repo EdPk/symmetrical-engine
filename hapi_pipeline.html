@@ -1,0 +1,1182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>How HAPI standardises data</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <style>* { box-sizing: border-box; margin: 0; padding: 0; }</style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState } = React;
+
+
+/* ───────── DATA ───────── */
+
+const INDICATORS = [
+  {
+    id: "conflict", name: "Conflict Events", partner: "ACLED", partnerFull: "Armed Conflict Location & Event Data Project",
+    adminLevel: "Admin 2", sourceType: "partner_hdx", sourceUrl: "https://www.acleddata.com/",
+    repo: "hdx-scraper-acled",
+    layer2: {
+      summary: "ACLED publishes pre-processed Excel files to HDX weekly.",
+      partnerLink: "https://data.humdata.org/organization/acled",
+      partnerLinkLabel: "ACLED on HDX",
+      detail: "ACLED's researchers monitor conflict events across 200+ countries, classifying and geocoding each event against a defined codebook before publication. The files deposited on HDX are already aggregated to monthly counts by country, location, and event type — this is ACLED's own editorial decision, not HAPI's. ACLED does not publish a public pipeline for this process.",
+      scraperSummary: "HAPI reads ACLED's HDX files — not ACLED's own event-level API.",
+      scraperCadence: "Weekly (Fri 09:50 UTC)",
+      scraperCadenceLink: "https://github.com/OCHA-DAP/hdx-scraper-acled/blob/main/.github/workflows/run-python-script.yaml",
+      partnerUpdates: "Weekly",
+      maxLag: "Up to ~7 days", lagStatus: "moderate",
+      lagNote: "ACLED's own API is updated in near real-time. The HDX files HAPI reads are weekly snapshots — new events may not appear in HAPI for up to a week after coding.",
+      divergenceLevel: "significant",
+      divergenceNote: "ACLED also operates its own API which provides individual event records — every incident with precise date, coordinates, and actor details. The HDX files HAPI draws from are monthly aggregated counts. A researcher querying ACLED directly would receive considerably more granular data.",
+      divergenceLink: "https://acleddata.com/acled-api-documentation",
+      divergenceLinkLabel: "ACLED API documentation",
+      references: [
+        { label: "ACLED on HDX (246 datasets)", url: "https://data.humdata.org/organization/acled", confidence: "confirmed" },
+        { label: "ACLED codebook", url: "https://acleddata.com/methodology/acled-codebook", confidence: "confirmed" },
+        { label: "HAPI scraper repo (hdx-scraper-acled)", url: "https://github.com/OCHA-DAP/hdx-scraper-acled", confidence: "confirmed" },
+      ],
+    },
+    processes: [
+      { name: "Event type classification", icon: "tag", desc: "Identifies event types (battles, explosions, violence against civilians) from the structure of the source data." },
+      { name: "Country code alignment", icon: "globe", desc: "Resolves each record to an ISO3 country code, with special handling for Kosovo (XKX)." },
+      { name: "HRP/GHO flagging", icon: "flag", desc: "Flags whether each country is covered by a Humanitarian Response Plan or Global Humanitarian Overview." },
+      { name: "Date standardisation", icon: "cal", desc: "Converts month and year fields into standardised start and end date ranges." },
+      { name: "Geographic alignment", icon: "pin", desc: "Matches location names to common boundary codes at levels 1 and 2. Exact matching only (no fuzzy matching)." },
+      { name: "Duplicate detection", icon: "dup", desc: "Identifies duplicate records based on location, event type, and time period." },
+    ],
+    hapiDataset: "hdx-hapi-conflict-event",
+    dbSteps: ["error_filter", "link_locations", "connector_rows"],
+    endpoint: "/coordination-context/conflict-events",
+    csvName: "Conflict Events", isException: false, note: null,
+  },
+  {
+    id: "funding", name: "Funding", partner: "FTS", partnerFull: "OCHA Financial Tracking Service",
+    adminLevel: "Country", sourceType: "partner_api", sourceUrl: "https://fts.unocha.org/",
+    repo: "hdx-scraper-fts",
+    layer2: {
+      summary: "FTS is an OCHA system. Funding flows are reported by donors and curated by FTS staff before API publication.",
+      partnerLink: "https://api.hpc.tools/docs/v2/",
+      partnerLinkLabel: "FTS API documentation",
+      detail: "The Financial Tracking Service is maintained by OCHA. Funding flows are reported to FTS by donor governments, UN agencies, and NGOs, and curated by FTS staff before being made available via the public API. FTS also publishes 227 per-country HDX datasets independently, but HAPI does not use these.",
+      scraperSummary: "HAPI queries the FTS public API directly. No intermediate HDX deposit.",
+      scraperCadence: "Daily",
+      scraperCadenceLink: "https://github.com/OCHA-DAP/hdx-scraper-fts",
+      partnerUpdates: "Live (API)", maxLag: "Hours only", lagStatus: "good",
+      lagNote: "Best currency of all 13 indicators. The daily scraper means HAPI funding data is typically no more than 24 hours behind the live FTS API.",
+      divergenceLevel: "moderate",
+      divergenceNote: "The FTS API exposes funding flows at a more detailed level — including breakdowns by organisation, sector, and funding type. HAPI extracts plan-level totals only. Users needing sector-level breakdowns should query the FTS API directly.",
+      divergenceLink: "https://api.hpc.tools/docs/v2/", divergenceLinkLabel: "FTS API",
+      references: [
+        { label: "FTS API documentation", url: "https://api.hpc.tools/docs/v2/", confidence: "confirmed" },
+        { label: "HAPI scraper repo (hdx-scraper-fts)", url: "https://github.com/OCHA-DAP/hdx-scraper-fts", confidence: "confirmed" },
+        { label: "FTS per-country HDX datasets (227)", url: "https://data.humdata.org/organization/ocha-fts", confidence: "confirmed" },
+      ],
+    },
+    processes: [
+      { name: "Appeal code mapping", icon: "tag", desc: "Maps each funding record to its humanitarian appeal code. Defaults to 'Not specified' where missing." },
+      { name: "Funding validation", icon: "check", desc: "Checks funding values and flags negative amounts as errors." },
+      { name: "Country code alignment", icon: "globe", desc: "Extracts and validates ISO3 country codes from plan metadata." },
+      { name: "HRP/GHO flagging", icon: "flag", desc: "Flags HRP and GHO status for each country." },
+      { name: "Date standardisation", icon: "cal", desc: "Parses plan start/end dates into standardised reference periods, falling back to full year if unavailable." },
+      { name: "Duplicate detection", icon: "dup", desc: "Identifies duplicates by country, appeal code, and start date." },
+    ],
+    hapiDataset: "hdx-hapi-funding", dbSteps: ["error_filter", "link_locations"],
+    endpoint: "/coordination-context/funding", csvName: "Funding", isException: false, note: null,
+  },
+  {
+    id: "idps", name: "IDPs", partner: "IOM DTM", partnerFull: "IOM Displacement Tracking Matrix",
+    adminLevel: "Admin 2", sourceType: "partner_api", sourceUrl: "https://dtm.iom.int/",
+    repo: "hdx-scraper-iom-dtm",
+    layer2: {
+      summary: "IOM DTM conducts field assessments in displacement-affected countries. The DTM API (v3, 2024) provides aggregated IDP figures — individual assessment records not exposed.",
+      partnerLink: "https://dtm.iom.int/data-and-analysis/dtm-api", partnerLinkLabel: "DTM API",
+      detail: "IOM's Displacement Tracking Matrix conducts field assessments in displacement-affected countries. The DTM API v3.0 provides aggregated IDP figures at country, Admin 1, and Admin 2 levels. It is explicitly designed to provide 'non-sensitive IDP figures only'.",
+      scraperSummary: "HAPI queries the DTM public API directly. ⚠ Automated scheduler currently inactive — runs on manual trigger only.",
+      scraperCadence: "⚠ Scheduler currently inactive",
+      scraperCadenceLink: "https://github.com/OCHA-DAP/hdx-scraper-iom-dtm/blob/main/.github/workflows/run-python-script.yaml",
+      partnerUpdates: "Variable by country", maxLag: "Unknown — verify with HAPI team", lagStatus: "unknown",
+      lagNote: "The automated schedule is currently commented out in the workflow file. Actual update frequency is unknown — verify with the HAPI technical team.",
+      divergenceLevel: "moderate",
+      divergenceNote: "The DTM API allows filtering by assessment type, operation, and round — dimensions HAPI aggregates away. A direct API user can retrieve IDP figures broken down by specific assessment operations; HAPI provides consolidated totals. Registration required for a DTM API key.",
+      divergenceLink: "https://dtm.iom.int/data-and-analysis/dtm-api", divergenceLinkLabel: "DTM API (registration required)",
+      references: [
+        { label: "DTM API documentation", url: "https://dtm.iom.int/data-and-analysis/dtm-api", confidence: "confirmed" },
+        { label: "HAPI scraper repo (hdx-scraper-iom-dtm)", url: "https://github.com/OCHA-DAP/hdx-scraper-iom-dtm", confidence: "confirmed" },
+        { label: "DTM per-country datasets on HDX", url: "https://data.humdata.org/organization/international-organization-for-migration", confidence: "confirmed" },
+      ],
+    },
+    processes: [
+      { name: "Data aggregation", icon: "sum", desc: "Groups displacement figures by location, assessment type, operation, date, and round, then sums IDP counts to avoid double-counting." },
+      { name: "Geographic alignment", icon: "pin", desc: "Matches provider location names to common boundary codes at admin levels 1 and 2 using fuzzy matching." },
+      { name: "Date standardisation", icon: "cal", desc: "Converts reporting dates into standardised reference periods." },
+      { name: "Country code alignment", icon: "globe", desc: "Resolves country codes from DTM's country list." },
+      { name: "HRP/GHO flagging", icon: "flag", desc: "Flags HRP and GHO status." },
+      { name: "Duplicate detection", icon: "dup", desc: "Detects duplicates before aggregation." },
+    ],
+    hapiDataset: "hdx-hapi-idps", dbSteps: ["error_filter", "link_locations", "connector_rows"],
+    endpoint: "/affected-people/internally-displaced-persons", csvName: "IDPs", isException: false, note: null,
+  },
+  {
+    id: "food_security", name: "Food Security", partner: "IPC", partnerFull: "Integrated Food Security Phase Classification",
+    adminLevel: "Admin 2", sourceType: "partner_api", sourceUrl: "https://www.ipcinfo.org/",
+    repo: "hdx-scraper-ipc",
+    layer2: {
+      summary: "IPC analyses are produced by in-country Technical Working Groups using the IPC Manual 3.0 consensus methodology.",
+      partnerLink: "https://data.humdata.org/organization/ipc", partnerLinkLabel: "IPC on HDX",
+      detail: "IPC analyses are produced by in-country Technical Working Groups using the IPC Manual 3.0 consensus methodology. The IPC API provides phase classification data including current analysis and two projection periods. A supplementary HDX dataset fills gaps the API does not cover. API key required — available on request from IPC.",
+      scraperSummary: "HAPI uses two IPC sources: the IPC API (primary) and a supplementary HDX dataset. ⚠ Automated scheduler currently inactive.",
+      scraperCadence: "⚠ Scheduler currently inactive",
+      scraperCadenceLink: "https://github.com/OCHA-DAP/hdx-scraper-ipc/blob/main/.github/workflows/run-python-script.yaml",
+      partnerUpdates: "As needed (per analysis cycle)", maxLag: "Unknown — verify with HAPI team", lagStatus: "unknown",
+      lagNote: "The automated schedule is currently commented out. Given that IPC analyses cover active food crisis situations, the currency of this indicator warrants particular attention.",
+      divergenceLevel: "low",
+      divergenceNote: "HAPI applies country-specific geographic configurations to align IPC's reporting areas to standard p-codes. Some IPC data is excluded where alignment is not possible.",
+      divergenceLink: "https://data.humdata.org/dataset/global-acute-food-insecurity-country-data", divergenceLinkLabel: "IPC supplementary HDX dataset",
+      references: [
+        { label: "IPC on HDX", url: "https://data.humdata.org/organization/ipc", confidence: "confirmed" },
+        { label: "IPC API information", url: "https://www.ipcinfo.org/ipc-country-analysis/api/", confidence: "confirmed" },
+        { label: "IPC Manual 3.0", url: "https://fscluster.org/sites/default/files/documents/ipc_technical_manual_3_final.pdf", confidence: "confirmed" },
+        { label: "HAPI scraper repo (hdx-scraper-ipc)", url: "https://github.com/OCHA-DAP/hdx-scraper-ipc", confidence: "confirmed" },
+        { label: "ripc R package (OCHA)", url: "https://github.com/OCHA-DAP/ripc", confidence: "confirmed" },
+      ],
+    },
+    processes: [
+      { name: "Phase mapping", icon: "tag", desc: "Maps IPC analysis categories to standardised phase labels: current estimates, Phase 3+, and individual phases 1 through 5." },
+      { name: "Complex geo alignment", icon: "pin", desc: "Handles country-specific configurations where admin level boundaries do not align neatly with IPC reporting levels." },
+      { name: "Projection handling", icon: "tag", desc: "Processes three projection types: current analysis, first projection, second projection." },
+      { name: "Date standardisation", icon: "cal", desc: "Parses IPC analysis periods and detects missing time periods." },
+      { name: "Duplicate resolution", icon: "dup", desc: "When duplicates are found, prefers the most recent analysis date, then the higher population figure." },
+      { name: "HRP/GHO flagging", icon: "flag", desc: "Flags HRP and GHO status per country." },
+    ],
+    hapiDataset: "hdx-hapi-food-security", dbSteps: ["error_filter", "link_locations", "connector_rows"],
+    endpoint: "/food-security-nutrition-poverty/food-security", csvName: "Food Security", isException: false, note: null,
+  },
+  {
+    id: "hum_needs", name: "Humanitarian Needs", partner: "HPC", partnerFull: "OCHA Humanitarian Programme Cycle",
+    adminLevel: "Admin 2", sourceType: "partner_api", sourceUrl: "https://hpc.tools/",
+    repo: "hdx-scraper-hno",
+    layer2: {
+      summary: "Humanitarian Needs Overviews are produced by in-country coordination teams and entered into HPC.tools.",
+      partnerLink: "https://api.hpc.tools/docs/v1/", partnerLinkLabel: "HPC API documentation",
+      detail: "Humanitarian Needs Overviews are produced by in-country coordination teams and entered into HPC.tools. The HPC API provides plan caseload data — people in need, targeted, and reached — by sector and location. A next-generation GraphQL API (v4) is in early development.",
+      scraperSummary: "HAPI queries the HPC API directly. Publicly accessible without credentials since 2017. ⚠ Automated scheduler currently inactive.",
+      scraperCadence: "⚠ Scheduler currently inactive",
+      scraperCadenceLink: "https://github.com/OCHA-DAP/hdx-scraper-hno/blob/main/.github/workflows/run-python-script.yaml",
+      partnerUpdates: "Annual (HNO cycle)", maxLag: "Low impact — annual source", lagStatus: "low-impact",
+      lagNote: "The automated schedule is currently commented out. Given the annual source cadence, the inactive scheduler has limited practical impact.",
+      divergenceLevel: "low",
+      divergenceNote: "The HPC API exposes plan-level metadata and monitoring indicators HAPI does not surface, including plan objectives and inter-sector linkages.",
+      divergenceLink: "https://humanitarianaction.info", divergenceLinkLabel: "Humanitarian Action platform",
+      references: [
+        { label: "HPC API documentation", url: "https://api.hpc.tools/docs/v1/", confidence: "confirmed" },
+        { label: "HAPI scraper repo (hdx-scraper-hno)", url: "https://github.com/OCHA-DAP/hdx-scraper-hno", confidence: "confirmed" },
+        { label: "Humanitarian Action platform", url: "https://humanitarianaction.info", confidence: "confirmed" },
+        { label: "HPC datasets on HDX (105)", url: "https://data.humdata.org/organization/ocha-hpc-tools", confidence: "confirmed" },
+      ],
+    },
+    processes: [
+      { name: "Sector harmonisation", icon: "tag", desc: "Converts sector names to standardised codes using ~130 mappings, with phonetic fallback matching." },
+      { name: "Status mapping", icon: "tag", desc: "Maps status descriptions (e.g. 'People in Need') to standardised short codes." },
+      { name: "Value validation", icon: "check", desc: "Removes negative population values (error) and rounds fractional values (warning)." },
+      { name: "Geographic alignment", icon: "pin", desc: "Matches locations to boundary codes at admin 1 and 2. Admin 3+ excluded with warning." },
+      { name: "Duplicate detection", icon: "dup", desc: "Deduplicates by country, admin area, sector, category, and population status." },
+      { name: "HRP/GHO flagging", icon: "flag", desc: "Flags HRP and GHO status." },
+    ],
+    hapiDataset: "hdx-hapi-humanitarian-needs", dbSteps: ["error_filter", "link_locations", "connector_rows"],
+    endpoint: "/affected-people/humanitarian-needs", csvName: "Humanitarian Needs", isException: false, note: null,
+  },
+  {
+    id: "food_prices", name: "Food Prices", partner: "WFP VAM", partnerFull: "WFP Vulnerability Analysis and Mapping",
+    adminLevel: "Admin 2", sourceType: "partner_hdx", sourceUrl: "https://dataviz.vam.wfp.org/",
+    repo: "hdx-scraper-wfp-food-prices",
+    layer2: {
+      summary: "WFP's VAM unit collects food price data from ~3,000 markets across 98 countries via the DataBridges API.",
+      partnerLink: "https://databridges.vam.wfp.org/", partnerLinkLabel: "WFP DataBridges API",
+      detail: "WFP's Vulnerability Analysis and Mapping unit collects food price data from ~3,000 markets across 98 countries. The DataBridges API provides monthly price data by commodity, market, and country. API key required — contact wfp.vaminfo@wfp.org. Note: the global WFP HDX dataset has not been updated since August 2021 — the API is the current source.",
+      scraperSummary: "HAPI queries WFP's DataBridges API directly.",
+      scraperCadence: "Monthly",
+      scraperCadenceLink: "https://github.com/OCHA-DAP/hdx-scraper-wfp-food-prices",
+      partnerUpdates: "Monthly", maxLag: "Days only", lagStatus: "good",
+      lagNote: "Well aligned — monthly source, monthly scraper.",
+      divergenceLevel: "moderate",
+      divergenceNote: "The DataBridges API provides daily and weekly price aggregations, and includes Alert for Price Spikes (ALPS) indicators not available in HAPI. HAPI extracts monthly prices only.",
+      divergenceLink: "https://databridges.vam.wfp.org/", divergenceLinkLabel: "DataBridges API (key required)",
+      references: [
+        { label: "WFP DataBridges API", url: "https://databridges.vam.wfp.org/", confidence: "confirmed" },
+        { label: "WFP-VAM DataBridges Python SDK", url: "https://github.com/WFP-VAM/DataBridgesAPI", confidence: "confirmed" },
+        { label: "HAPI scraper repo (hdx-scraper-wfp-food-prices)", url: "https://github.com/OCHA-DAP/hdx-scraper-wfp-food-prices", confidence: "confirmed" },
+        { label: "WFP food prices on HDX (last updated Aug 2021)", url: "https://data.humdata.org/dataset/wfp-food-prices", confidence: "confirmed" },
+      ],
+    },
+    processes: [
+      { name: "Market-level geo alignment", icon: "pin", desc: "Matches market locations to boundary codes using custom per-country rules for misaligned admin levels." },
+      { name: "Commodity cataloguing", icon: "tag", desc: "Processes three linked outputs: commodity reference list, market reference list with coordinates, and price data." },
+      { name: "Date standardisation", icon: "cal", desc: "Calculates one-month reference periods from the recorded date." },
+      { name: "Currency metadata", icon: "tag", desc: "Preserves currency codes, price flags, and price types from the source data." },
+      { name: "Country code alignment", icon: "globe", desc: "Resolves ISO3 country codes." },
+      { name: "HRP/GHO flagging", icon: "flag", desc: "Flags HRP and GHO status." },
+    ],
+    hapiDataset: "hdx-hapi-food-price", dbSteps: ["error_filter", "link_locations", "connector_rows"],
+    endpoint: "/food-security-nutrition-poverty/food-prices-market-monitor", csvName: "Food Prices", isException: false, note: null,
+  },
+  {
+    id: "poverty", name: "Poverty Rate", partner: "OPHI", partnerFull: "Oxford Poverty and Human Development Initiative",
+    adminLevel: "Country & Admin 1", sourceType: "partner_ext", sourceUrl: "https://ophi.org.uk/",
+    repo: "hdx-scraper-ophi",
+    layer2: {
+      summary: "OPHI produces the Global Multidimensional Poverty Index using the Alkire-Foster methodology. No public pipeline code is available.",
+      partnerLink: "https://data.humdata.org/dataset/global-mpi", partnerLinkLabel: "Global MPI dataset on HDX",
+      detail: "The Oxford Poverty and Human Development Initiative produces the Global MPI combining 10 indicators across Health, Education, and Living Standards. OPHI publishes three Excel files to HDX: national results, subnational results, and trends. OPHI does not have a public GitHub repository for their pipeline.",
+      scraperSummary: "HAPI reads OPHI's Excel files from HDX. No alternative API available.",
+      scraperCadence: "Annually (20 October)",
+      scraperCadenceLink: "https://github.com/OCHA-DAP/hdx-scraper-ophi/blob/main/.github/workflows/run-python-script.yaml",
+      partnerUpdates: "Annual", maxLag: "Days only", lagStatus: "good",
+      lagNote: "Well aligned for annual data. The fixed October schedule may create a gap if OPHI publishes before October.",
+      divergenceLevel: "none", divergenceNote: null, divergenceLink: null, divergenceLinkLabel: null,
+      references: [
+        { label: "OPHI on HDX (127 datasets)", url: "https://data.humdata.org/organization/oxford-poverty-human-development-initiative", confidence: "confirmed" },
+        { label: "Global MPI dataset on HDX", url: "https://data.humdata.org/dataset/global-mpi", confidence: "confirmed" },
+        { label: "HAPI scraper repo (hdx-scraper-ophi)", url: "https://github.com/OCHA-DAP/hdx-scraper-ophi", confidence: "confirmed" },
+      ],
+    },
+    processes: [
+      { name: "Indicator mapping", icon: "tag", desc: "Maps five indicators: MPI score, Headcount Ratio, Intensity of Deprivation, Vulnerable to Poverty, In Severe Poverty." },
+      { name: "Geographic alignment", icon: "pin", desc: "Matches subnational names to admin 1 boundary codes. Direct lookup, no fuzzy matching." },
+      { name: "Date standardisation", icon: "cal", desc: "Parses OPHI date range formats (e.g. '2018-2019') into standardised reference periods." },
+      { name: "Duplicate detection", icon: "dup", desc: "Deduplicates by country, admin area, admin code, and reference period." },
+      { name: "Trend processing", icon: "sum", desc: "Processes both point-in-time data and trend-over-time series." },
+    ],
+    hapiDataset: "hdx-hapi-poverty-rate", dbSteps: ["error_filter", "link_locations"],
+    endpoint: "/food-security-nutrition-poverty/poverty-rate", csvName: "Poverty Rate", isException: false, note: null,
+  },
+  {
+    id: "refugees", name: "Refugees", partner: "UNHCR", partnerFull: "UN Refugee Agency",
+    adminLevel: "Country", sourceType: "partner_hdx", sourceUrl: "https://www.unhcr.org/refugee-statistics/",
+    repo: "hdx-scraper-refugees-returnees",
+    layer2: {
+      summary: "UNHCR compiles annual population statistics from government reporting, registration systems, and NGO data — going back to 1951.",
+      partnerLink: "https://data.humdata.org/dataset/unhcr-population-data-for-world", partnerLinkLabel: "UNHCR population data on HDX",
+      detail: "UNHCR compiles population statistics annually from government reporting, registration systems, and NGO data, going back to 1951. The HDX dataset contains five CSV resources tagged with the HXL humanitarian data standard. UNHCR also maintains a public API and an R package ecosystem.",
+      scraperSummary: "HAPI reads UNHCR CSV files from HDX and filters to refugee population group codes.",
+      scraperCadence: "Weekdays (Mon–Fri)",
+      scraperCadenceLink: "https://github.com/OCHA-DAP/hdx-scraper-refugees-returnees/blob/main/.github/workflows/run-python-script.yaml",
+      partnerUpdates: "Annual", maxLag: "Days only", lagStatus: "good",
+      lagNote: "Well aligned. The daily weekday check means HAPI picks up UNHCR's annual release within a working day of publication.",
+      divergenceLevel: "low",
+      divergenceNote: "UNHCR's own API and Refugee Data Finder provide the same underlying data with more flexible filtering — including all population group types, not just the refugee-relevant subset HAPI extracts.",
+      divergenceLink: "https://www.unhcr.org/refugee-statistics", divergenceLinkLabel: "UNHCR Refugee Data Finder",
+      references: [
+        { label: "UNHCR population data on HDX", url: "https://data.humdata.org/dataset/unhcr-population-data-for-world", confidence: "confirmed" },
+        { label: "UNHCR on HDX (1,024+ datasets)", url: "https://data.humdata.org/organization/unhcr", confidence: "confirmed" },
+        { label: "UNHCR public API", url: "https://api.unhcr.org/docs/refugee-statistics.html", confidence: "confirmed" },
+        { label: "HAPI scraper repo (hdx-scraper-refugees-returnees)", url: "https://github.com/OCHA-DAP/hdx-scraper-refugees-returnees", confidence: "confirmed" },
+      ],
+    },
+    processes: [
+      { name: "Population group filtering", icon: "tag", desc: "Filters to refugee-relevant types: refugees, asylum seekers, stateless persons, and other categories of concern." },
+      { name: "Gender + age parsing", icon: "tag", desc: "Extracts gender and age ranges from column headers and maps to standardised min/max age fields." },
+      { name: "Dual location model", icon: "pin", desc: "Maintains both origin country and asylum country for each record." },
+      { name: "Data aggregation", icon: "sum", desc: "Groups and sums population figures by year, origin, asylum country, and population type." },
+      { name: "Country code validation", icon: "check", desc: "Flags records with unrecognised country codes as errors." },
+    ],
+    hapiDataset: "hdx-hapi-refugees", dbSteps: ["error_filter", "link_locations"],
+    endpoint: "/affected-people/refugees-persons-of-concern", csvName: "Refugees", isException: false, note: "Shared upstream with Returnees",
+  },
+  {
+    id: "returnees", name: "Returnees", partner: "UNHCR", partnerFull: "UN Refugee Agency",
+    adminLevel: "Country", sourceType: "partner_hdx", sourceUrl: "https://www.unhcr.org/refugee-statistics/",
+    repo: "hdx-scraper-refugees-returnees",
+    layer2: {
+      summary: "Same UNHCR annual population statistics dataset as Refugees, filtered to returnee population types (RET, RDP, RRI).",
+      partnerLink: "https://data.humdata.org/dataset/unhcr-population-data-for-world", partnerLinkLabel: "UNHCR population data on HDX",
+      detail: "Returnees data comes from the same UNHCR annual population statistics dataset as Refugees. HAPI applies a different population group code filter, extracting returnee-relevant types only: returned refugees, returned IDPs, and resettled refugees.",
+      scraperSummary: "HAPI reads the same UNHCR CSV files as Refugees — both indicators share one upstream scraper.",
+      scraperCadence: "Weekdays (Mon–Fri)",
+      scraperCadenceLink: "https://github.com/OCHA-DAP/hdx-scraper-refugees-returnees/blob/main/.github/workflows/run-python-script.yaml",
+      partnerUpdates: "Annual", maxLag: "Days only", lagStatus: "good",
+      lagNote: "Well aligned — same as Refugees indicator.",
+      divergenceLevel: "low",
+      divergenceNote: "Same as Refugees: UNHCR's API and Refugee Data Finder expose all population group types with more flexible filtering than HAPI.",
+      divergenceLink: "https://www.unhcr.org/refugee-statistics", divergenceLinkLabel: "UNHCR Refugee Data Finder",
+      references: [
+        { label: "UNHCR population data on HDX", url: "https://data.humdata.org/dataset/unhcr-population-data-for-world", confidence: "confirmed" },
+        { label: "HAPI scraper repo (shared with Refugees)", url: "https://github.com/OCHA-DAP/hdx-scraper-refugees-returnees", confidence: "confirmed" },
+      ],
+    },
+    processes: [
+      { name: "Population group filtering", icon: "tag", desc: "Filters to returnee-relevant types: returned refugees, returned IDPs, resettled refugees." },
+      { name: "Gender + age parsing", icon: "tag", desc: "Extracts gender and age ranges from column headers and maps to standardised min/max age fields." },
+      { name: "Dual location model", icon: "pin", desc: "Maintains both origin country and asylum country for each record." },
+      { name: "Data aggregation", icon: "sum", desc: "Groups and sums population figures by year, origin, asylum country, and population type." },
+      { name: "Country code validation", icon: "check", desc: "Flags records with unrecognised country codes as errors." },
+    ],
+    hapiDataset: "hdx-hapi-returnees", dbSteps: ["error_filter", "link_locations"],
+    endpoint: "/affected-people/returnees", csvName: "Returnees", isException: false, note: "Shared upstream with Refugees",
+  },
+  {
+    id: "population", name: "Population", partner: "COD-PS", partnerFull: "Common Operational Dataset - Population Statistics",
+    adminLevel: "Admin 2", sourceType: "partner_hdx", sourceUrl: "https://cod.unocha.org/",
+    repo: "hdx-scraper-cod-population",
+    layer2: {
+      summary: "Population data originates from national statistical offices, validated by UNFPA under the joint COD-PS programme.",
+      partnerLink: "https://data.humdata.org/dashboards/cod", partnerLinkLabel: "COD dashboard on HDX",
+      detail: "COD-PS is a joint UNFPA/OCHA programme. UNFPA regional offices identify the best available sex-and-age disaggregated population dataset for each country, validate it with an Information Management Working Group, and publish it to HDX as cod-ps-{iso3}. There are 101 COD-PS datasets covering 79 countries.",
+      scraperSummary: "HAPI reads one COD-PS dataset per country from HDX. One of the most complex scrapers — handles both Excel and CSV formats with varying admin structures.",
+      scraperCadence: "Weekdays (Mon–Fri)",
+      scraperCadenceLink: "https://github.com/OCHA-DAP/hdx-scraper-cod-population/blob/main/.github/workflows/run-python-script.yaml",
+      partnerUpdates: "Irregular (country-by-country)", maxLag: "Days only", lagStatus: "good",
+      lagNote: "Well aligned. Country-level COD-PS updates are infrequent; the weekday scraper ensures HAPI picks them up within a working day.",
+      divergenceLevel: "none", divergenceNote: null, divergenceLink: null, divergenceLinkLabel: null,
+      references: [
+        { label: "COD dashboard on HDX", url: "https://data.humdata.org/dashboards/cod", confidence: "confirmed" },
+        { label: "Example COD-PS dataset (Ukraine)", url: "https://data.humdata.org/dataset/cod-ps-ukr", confidence: "confirmed" },
+        { label: "HAPI scraper repo (hdx-scraper-cod-population)", url: "https://github.com/OCHA-DAP/hdx-scraper-cod-population", confidence: "confirmed" },
+      ],
+    },
+    processes: [
+      { name: "Multi-format handling", icon: "tag", desc: "Handles both Excel (sheets per admin level) and CSV (files per admin level), with intelligent header detection." },
+      { name: "Demographic parsing", icon: "tag", desc: "Parses population column headers to extract gender and age range breakdowns." },
+      { name: "Geographic alignment", icon: "pin", desc: "Matches location names/codes to standard boundary codes at admin 1 and 2. Exact matching. Capped at admin 2." },
+      { name: "Non-Latin script handling", icon: "globe", desc: "Detects non-Latin alphabets in location name headers and selects the appropriate column." },
+      { name: "Data aggregation", icon: "sum", desc: "Aggregates population figures and deduplicates by composite key." },
+      { name: "HRP/GHO flagging", icon: "flag", desc: "Splits output into HRP and non-HRP groups." },
+    ],
+    hapiDataset: "hdx-hapi-population", dbSteps: ["error_filter", "link_locations", "connector_rows"],
+    endpoint: "/population-social/population", csvName: "Population", isException: false, note: null,
+  },
+  {
+    id: "rainfall", name: "Rainfall", partner: "WFP / CHIRPS", partnerFull: "WFP via CHIRPS satellite rainfall estimates",
+    adminLevel: "Admin 1 & 2", sourceType: "partner_hdx", sourceUrl: "https://www.chc.ucsb.edu/data/chirps",
+    repo: "hdx-scraper-wfp-rainfall",
+    layer2: {
+      summary: "CHIRPS is a 40+ year quasi-global dataset produced by UCSB's Climate Hazards Center, combining satellite imagery and weather station data.",
+      partnerLink: "https://data.humdata.org/dataset/bfa-rainfall-subnational", partnerLinkLabel: "Example rainfall dataset (Burkina Faso)",
+      detail: "CHIRPS is produced by UCSB's Climate Hazards Center. WFP's Climate and Earth Observation Unit (RAM-C) downloads this gridded data and derives subnational estimates: averaging rainfall over Admin 1 and 2 boundaries, computing dekadal/monthly/3-month aggregations, and calculating anomalies against a 1989–2018 baseline. Covers 32 countries. Note: CHIRPS v2 production ends December 2026.",
+      scraperSummary: "HAPI reads WFP's per-country HDX datasets, published every two weeks.",
+      scraperCadence: "Weekly (Mon 23:32 UTC)",
+      scraperCadenceLink: "https://github.com/OCHA-DAP/hdx-scraper-wfp-rainfall/blob/main/.github/workflows/run-python-script.yaml",
+      partnerUpdates: "Every 2 weeks", maxLag: "Up to ~7 days", lagStatus: "moderate",
+      lagNote: "Acceptable for climate monitoring data. The weekly scraper runs more frequently than the biweekly source, so HAPI typically picks up new data within a week of the WFP deposit.",
+      divergenceLevel: "low",
+      divergenceNote: "Users wanting to compute their own subnational aggregations or apply different administrative boundaries can access the raw CHIRPS gridded data from UCSB at no cost. This requires GIS capability.",
+      divergenceLink: "https://www.chc.ucsb.edu/data/chirps", divergenceLinkLabel: "CHIRPS raw data (UCSB)",
+      references: [
+        { label: "WFP/OCHA collaboration announcement", url: "https://www.wfp.org/news/wfp-and-ocha-join-forces-make-data-more-accessible", confidence: "confirmed" },
+        { label: "Example HDX dataset with methodology", url: "https://data.humdata.org/dataset/bfa-rainfall-subnational", confidence: "confirmed" },
+        { label: "CHIRPS source data (UCSB)", url: "https://www.chc.ucsb.edu/data/chirps", confidence: "confirmed" },
+        { label: "HAPI scraper repo (hdx-scraper-wfp-rainfall)", url: "https://github.com/OCHA-DAP/hdx-scraper-wfp-rainfall", confidence: "confirmed" },
+      ],
+    },
+    processes: [
+      { name: "Temporal period handling", icon: "cal", desc: "Processes three aggregation periods: 10-day (dekad), 1-month, and 3-month, using a specialist calendar library." },
+      { name: "Version classification", icon: "tag", desc: "Classifies each observation as final, forecast, or preliminary based on the version string." },
+      { name: "Geographic alignment", icon: "pin", desc: "Matches location codes to standard boundary codes at admin 1 and 2. Exact matching with caching." },
+      { name: "Coverage filtering", icon: "check", desc: "Admin 2 filtered for non-HRP/GHO countries and Brazil. Data older than 1 year filtered to admin 1." },
+      { name: "HRP/GHO flagging", icon: "flag", desc: "Flags HRP and GHO status." },
+    ],
+    hapiDataset: "hdx-hapi-rainfall", dbSteps: ["error_filter", "link_locations", "connector_rows"],
+    endpoint: "/climate/hazards-rainfall", csvName: "Rainfall", isException: false, note: null,
+  },
+  {
+    id: "risk", name: "National Risk", partner: "INFORM", partnerFull: "INFORM Risk Index",
+    adminLevel: "Country", sourceType: "hdx_dataset", sourceUrl: "https://drmkc.jrc.ec.europa.eu/inform-index",
+    repo: null,
+    layer2: {
+      summary: "The INFORM Risk Index is produced by the EU Joint Research Centre — a composite index across 191 countries updated biannually.",
+      partnerLink: "https://data.humdata.org/dataset/inform-risk-index-2021", partnerLinkLabel: "INFORM dataset on HDX",
+      detail: "The INFORM Risk Index is produced by the European Commission's Joint Research Centre in collaboration with a multi-stakeholder forum. It combines hazard/exposure, vulnerability, and coping capacity scores across 191 countries. No public JRC pipeline code has been identified.",
+      scraperSummary: "No upstream scraper. The central hapi-pipelines-prod reads the INFORM HDX dataset directly — the only indicator where this applies.",
+      scraperCadence: "N/A — direct pipeline read", scraperCadenceLink: null,
+      partnerUpdates: "Biannual", maxLag: "~24 hours", lagStatus: "good",
+      lagNote: "No scraper layer. The central pipeline runs daily and picks up a new INFORM dataset within ~24 hours of HDX publication.",
+      divergenceLevel: "none", divergenceNote: null, divergenceLink: null, divergenceLinkLabel: null,
+      references: [
+        { label: "INFORM dataset on HDX", url: "https://data.humdata.org/dataset/inform-risk-index-2021", confidence: "confirmed" },
+        { label: "INFORM Risk Index portal", url: "https://drmkc.jrc.ec.europa.eu/inform-index", confidence: "confirmed" },
+      ],
+    },
+    processes: [
+      { name: "Risk class conversion", icon: "tag", desc: "Converts risk class text labels into numeric values for database storage." },
+    ],
+    hapiDataset: null, dbSteps: ["direct_read", "transform_load"],
+    endpoint: "/coordination-context/national-risk", csvName: "National Risk", isException: true, note: "Bypasses standard upstream pipeline",
+  },
+  {
+    id: "op", name: "Operational Presence", partner: "3W", partnerFull: "OCHA country office 'Who does What Where'",
+    adminLevel: "Admin 2", sourceType: "ocha_managed", sourceUrl: null,
+    repo: null,
+    layer2: {
+      summary: "Humanitarian organisations report their activities to OCHA country offices. OCHA's FISS unit coordinates 20+ country offices to publish per-country 3W datasets to HDX.",
+      partnerLink: "https://data.humdata.org/dataset/ocha-global-humanitarian-operational-presence-who-what-where-3w-portal", partnerLinkLabel: "Global operational presence on HDX",
+      detail: "OCHA's Field Information Services Section (FISS) provides standardised collection templates and coordinates 20+ country offices to publish per-country 3W datasets to HDX. Unlike all other indicators, this data is OCHA-managed end-to-end.",
+      scraperSummary: "HAPI reads 3W HDX datasets via an upstream scraper running monthly. Repository is private — the only HAPI indicator where scraper code cannot be independently verified.",
+      scraperCadence: "Monthly (private repo)", scraperCadenceLink: null,
+      partnerUpdates: "Monthly", maxLag: "Days only", lagStatus: "good",
+      lagNote: "Well aligned — monthly source, monthly scraper. Scraper confirmed active from HDX dataset metadata (last run 17 March 2026). Repo is private — behaviour inferred from metadata.",
+      divergenceLevel: "none", divergenceNote: null, divergenceLink: null, divergenceLinkLabel: null,
+      references: [
+        { label: "Global 3W portal", url: "https://3w.unocha.org", confidence: "confirmed" },
+        { label: "Global operational presence on HDX", url: "https://data.humdata.org/dataset/ocha-global-humanitarian-operational-presence-who-what-where-3w-portal", confidence: "confirmed" },
+        { label: "IM Toolbox 3W documentation", url: "https://humanitarian.atlassian.net/wiki/spaces/imtoolbox/pages/214499412/Who+does+What+Where+3W", confidence: "confirmed" },
+      ],
+    },
+    processes: [
+      { name: "Sector harmonisation", icon: "tag", desc: "~130 sector name mappings with phonetic fallback for misspelled or variant names." },
+      { name: "Org name standardisation", icon: "tag", desc: "~50 org type mappings with phonetic fallback matching." },
+      { name: "Geographic alignment", icon: "pin", desc: "Matches location names to common boundary codes at admin levels 1 and 2." },
+      { name: "Country code alignment", icon: "globe", desc: "Resolves ISO3 country codes." },
+      { name: "HRP/GHO flagging", icon: "flag", desc: "Flags HRP and GHO status." },
+      { name: "Duplicate detection", icon: "dup", desc: "Detects and flags duplicate records." },
+    ],
+    hapiDataset: "hdx-hapi-operational-presence", dbSteps: ["error_filter", "link_locations", "connector_rows"],
+    endpoint: "/coordination-context/operational-presence", csvName: "Operational Presence", isException: false, note: "Upstream repo is private",
+  },
+];
+
+const SOURCE_TYPES = {
+  partner_api:  { color: "#1d4ed8", bg: "#dbeafe", label: "Partner API" },
+  partner_hdx:  { color: "#15803d", bg: "#dcfce7", label: "Partner dataset on HDX" },
+  partner_ext:  { color: "#15803d", bg: "#dcfce7", label: "Partner dataset (external)" },
+  hdx_dataset:  { color: "#b45309", bg: "#fef3c7", label: "HDX dataset" },
+  ocha_managed: { color: "#7e22ce", bg: "#f3e8ff", label: "OCHA managed" },
+};
+
+const DIVERGENCE_CONFIG = {
+  significant: { color: "#92400e", bg: "#fef3c7", border: "#d97706", icon: "⚡", label: "Significant difference vs source" },
+  moderate:    { color: "#1e3a5f", bg: "#e0f2fe", border: "#7dd3fc", icon: "ⓘ", label: "Moderate difference vs source" },
+  low:         { color: "#374151", bg: "#f3f4f6", border: "#d1d5db", icon: "ⓘ", label: "Minor difference vs source" },
+  none:        null,
+};
+
+const LAG_CONFIG = {
+  good:         { color: "#15803d", bg: "#dcfce7" },
+  moderate:     { color: "#92400e", bg: "#fef3c7" },
+  unknown:      { color: "#92400e", bg: "#fef3c7" },
+  "low-impact": { color: "#555",    bg: "#f3f4f6" },
+};
+
+const ICONS = {
+  pin:   (c) => <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 1C5.24 1 3 3.24 3 6c0 3.75 5 9 5 9s5-5.25 5-9c0-2.76-2.24-5-5-5zm0 7a2 2 0 110-4 2 2 0 010 4z" fill={c}/></svg>,
+  globe: (c) => <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke={c} strokeWidth="1.3"/><ellipse cx="8" cy="8" rx="3" ry="6.5" stroke={c} strokeWidth="1.3"/><line x1="1.5" y1="8" x2="14.5" y2="8" stroke={c} strokeWidth="1.3"/></svg>,
+  cal:   (c) => <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="11" rx="1.5" stroke={c} strokeWidth="1.3"/><line x1="2" y1="6.5" x2="14" y2="6.5" stroke={c} strokeWidth="1.3"/><line x1="5.5" y1="1.5" x2="5.5" y2="4.5" stroke={c} strokeWidth="1.3" strokeLinecap="round"/><line x1="10.5" y1="1.5" x2="10.5" y2="4.5" stroke={c} strokeWidth="1.3" strokeLinecap="round"/></svg>,
+  flag:  (c) => <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 2v12M3 2l8 2.5L3 7" stroke={c} strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>,
+  dup:   (c) => <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="3.5" width="9" height="9" rx="1.5" stroke={c} strokeWidth="1.3"/><rect x="5.5" y="1.5" width="9" height="9" rx="1.5" stroke={c} strokeWidth="1.3" fill="none"/></svg>,
+  tag:   (c) => <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 8.5V3a1 1 0 011-1h5.5L14 7.5 8.5 13z" stroke={c} strokeWidth="1.3" strokeLinejoin="round"/><circle cx="5.5" cy="5.5" r="1" fill={c}/></svg>,
+  check: (c) => <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8.5L6.5 12 13 4" stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>,
+  sum:   (c) => <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M4 3h8L8 8l4 5H4" stroke={c} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>,
+};
+
+const DB_LABELS = {
+  error_filter:   "Filter error rows",
+  link_locations: "Link location refs",
+  connector_rows: "Create connector rows",
+  direct_read:    "Read directly from HDX",
+  transform_load: "Transform + load in one step",
+};
+
+const TRANSFORM_TYPES = [
+  { id: "geo", icon: "pin", name: "Geographic alignment", desc: "Matching location names to standardised p-codes from Common Operational Datasets. Methods range from exact matching to a five-stage cascade: exact, adjusted code format, normalised name, partial match, then phonetic (Refined Soundex).",
+    indicators: { conflict: "Exact match only", funding: null, idps: "Fuzzy matching", food_security: "Complex per-country config", hum_needs: "Fuzzy matching", food_prices: "Custom per-country rules", poverty: "Direct lookup only", refugees: "Dual origin + asylum", returnees: "Dual origin + asylum", population: "Exact match only", rainfall: "Exact match + caching", risk: null, op: "Fuzzy matching" }},
+  { id: "country", icon: "globe", name: "Country code resolution", desc: "Resolving each record to a standard ISO3 country code, handling edge cases like Kosovo (XKX) and validating against known code lists.",
+    indicators: { conflict: "✓", funding: "✓", idps: "✓", food_security: "✓", hum_needs: "✓", food_prices: "✓", poverty: "✓", refugees: "✓", returnees: "✓", population: "✓", rainfall: "✓", risk: "✓", op: "✓" }},
+  { id: "dates", icon: "cal", name: "Date and temporal standardisation", desc: "Converting the wide variety of date formats into consistent reference period start and end dates.",
+    indicators: { conflict: "Month + year → range", funding: "Plan dates → range", idps: "Reporting dates", food_security: "Analysis periods", hum_needs: "✓", food_prices: "Date → 1-month period", poverty: "Date ranges (e.g. '2018-2019')", refugees: "Year → range", returnees: "Year → range", population: "✓", rainfall: "Dekad, 1-month, 3-month periods", risk: "✓", op: "✓" }},
+  { id: "schema", icon: "tag", name: "Column harmonisation", desc: "Mapping each source's different column names and structures into the common HAPI schema.",
+    indicators: { conflict: "✓", funding: "✓", idps: "✓", food_security: "✓", hum_needs: "✓", food_prices: "✓", poverty: "✓", refugees: "✓", returnees: "✓", population: "✓", rainfall: "✓", risk: "✓", op: "✓" }},
+  { id: "hrp", icon: "flag", name: "HRP/GHO crisis flagging", desc: "Flagging whether each country is covered by a Humanitarian Response Plan or appears in the Global Humanitarian Overview.",
+    indicators: { conflict: "✓", funding: "✓", idps: "✓", food_security: "✓", hum_needs: "✓", food_prices: "✓", poverty: "✓", refugees: "✓", returnees: "✓", population: "Split HRP/non-HRP", rainfall: "✓", risk: "✓", op: "✓" }},
+  { id: "dedup", icon: "dup", name: "Duplicate detection", desc: "Checking records for duplicates based on composite key fields. Duplicates are flagged transparently rather than silently removed.",
+    indicators: { conflict: "✓", funding: "✓", idps: "Before aggregation", food_security: "Smart: prefers recent date", hum_needs: "✓", food_prices: null, poverty: "✓", refugees: null, returnees: null, population: "By composite key", rainfall: null, risk: null, op: "✓" }},
+  { id: "quality", icon: "check", name: "Quality tagging", desc: "Every record can carry warning and error tags. Error-tagged records are included in intermediate datasets for transparency but filtered before the API.",
+    indicators: { conflict: "✓", funding: "✓", idps: "✓", food_security: "✓", hum_needs: "✓", food_prices: "✓", poverty: "✓", refugees: "✓", returnees: "✓", population: "✓", rainfall: "✓", risk: "✓", op: "✓" }},
+  { id: "provenance", icon: "tag", name: "Provenance tracking", desc: "Linking each record back to the specific HDX dataset and resource it came from.",
+    indicators: { conflict: "✓", funding: "✓", idps: "✓", food_security: "✓", hum_needs: "✓", food_prices: "✓", poverty: "✓", refugees: "✓", returnees: "✓", population: "✓", rainfall: "✓", risk: null, op: "✓" }},
+  { id: "domain_class", icon: "tag", name: "Domain-specific classification", desc: "Mapping source-specific categories into standardised taxonomies: IPC phases, sector names (~130 mappings), population group codes, event types.",
+    indicators: { conflict: "Event type", funding: "Appeal code", idps: null, food_security: "IPC phases + projections", hum_needs: "Sectors (~130) + status codes", food_prices: "Commodities + currencies", poverty: "5 MPI indicators", refugees: "Population groups", returnees: "Population groups", population: null, rainfall: "Data version (final/forecast/prelim)", risk: "Risk class → numeric", op: "Sectors (~130) + org names (~50)" }},
+  { id: "validation", icon: "check", name: "Data validation", desc: "Checking values for correctness beyond format: flagging negative amounts, validating codes, filtering by coverage rules.",
+    indicators: { conflict: null, funding: "Negative amounts → error", idps: null, food_security: null, hum_needs: "Negative pop → error; floats → warning", food_prices: null, poverty: null, refugees: "Unknown codes → error", returnees: "Unknown codes → error", population: null, rainfall: "Coverage + recency filtering", risk: null, op: null }},
+  { id: "aggregation", icon: "sum", name: "Aggregation and reshaping", desc: "Grouping, summing, or reshaping data to produce the right level of granularity.",
+    indicators: { conflict: null, funding: null, idps: "Group + sum by location/type", food_security: null, hum_needs: null, food_prices: null, poverty: "Trend-over-time series", refugees: "Sum by year/origin/asylum", returnees: "Sum by year/origin/asylum", population: "Aggregate + dedup; demographic parsing; multi-format", rainfall: null, risk: null, op: null }},
+  { id: "locale", icon: "globe", name: "Locale and encoding handling", desc: "Dealing with non-Latin scripts, character encoding issues, and language-specific column selection.",
+    indicators: { conflict: null, funding: null, idps: null, food_security: null, hum_needs: null, food_prices: null, poverty: null, refugees: "Gender/age from headers", returnees: "Gender/age from headers", population: "Non-Latin script detection", rainfall: null, risk: null, op: null }},
+];
+
+/* ───────── COMPONENTS ───────── */
+
+/* Row-expand chevron: RIGHT (▶) when closed, DOWN (▼) when open */
+function ExpandChevron({ open, size = 10 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 10 10" fill="none" style={{
+      transform: open ? "rotate(90deg)" : "rotate(0deg)",
+      transition: "transform 0.18s ease", flexShrink: 0, display: "block",
+    }}>
+      <path d="M3.5 2L7 5L3.5 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  );
+}
+
+/* Section chevron: RIGHT (▶) when closed, DOWN (▼) when open — matches row chevrons */
+function SectionChevron({ open }) {
+  return (
+    <svg width={14} height={14} viewBox="0 0 10 10" fill="none" style={{
+      transform: open ? "rotate(90deg)" : "rotate(0deg)",
+      transition: "transform 0.2s ease", flexShrink: 0,
+    }}>
+      <path d="M3.5 2L7 5L3.5 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  );
+}
+
+function Section({ title, subtitle, defaultOpen, children }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div style={{ borderBottom: "1px solid #e5e7eb" }}>
+      <button onClick={() => setOpen(!open)} style={{
+        display: "flex", alignItems: "center", gap: 10,
+        width: "100%", padding: "14px 24px",
+        background: open ? "#f8fafc" : "#fff",
+        border: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left",
+        transition: "background 0.12s ease",
+      }}>
+        <SectionChevron open={open} />
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 15, fontWeight: 650, color: "#111" }}>{title}</div>
+          {subtitle && <div style={{ fontSize: 12.5, color: "#555", marginTop: 1 }}>{subtitle}</div>}
+        </div>
+      </button>
+      {open && <div>{children}</div>}
+    </div>
+  );
+}
+
+/* ProcessItem — consistent expandable item for Stage 3 processes */
+function ProcessItem({ label, icon, color, children }) {
+  const [open, setOpen] = useState(false);
+  const IconFn = icon ? ICONS[icon] : null;
+  return (
+    <div>
+      <button onClick={(e) => { e.stopPropagation(); setOpen(!open); }} style={{
+        display: "flex", alignItems: "center", gap: 5,
+        width: "100%", textAlign: "left", fontSize: 12.5, lineHeight: 1.35,
+        color: "#1a1a1a", fontWeight: open ? 600 : 450,
+        padding: "3px 5px", background: open ? "#f0f0f0" : "transparent",
+        border: "none", borderRadius: 4, cursor: "pointer",
+        transition: "all 0.12s ease", fontFamily: "inherit",
+      }}
+        onMouseEnter={e => { if (!open) e.currentTarget.style.background = "#f5f5f5"; }}
+        onMouseLeave={e => { e.currentTarget.style.background = open ? "#f0f0f0" : "transparent"; }}
+      >
+        {IconFn && <span style={{ flexShrink: 0, display: "flex" }}>{IconFn(color || "#6366f1")}</span>}
+        <span style={{ flex: 1 }}>{label}</span>
+        <ExpandChevron open={open} size={10} />
+      </button>
+      {open && (
+        <div style={{ fontSize: 12, lineHeight: 1.5, color: "#444", padding: "3px 5px 6px 22px" }}>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ExpandRow — single-click expand pattern for Stage 1 and Stage 2 cells */
+function ExpandRow({ summary, alwaysVisible, children }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div>
+      <button onClick={() => setOpen(!open)} style={{
+        display: "flex", alignItems: "flex-start", gap: 6,
+        width: "100%", textAlign: "left", fontSize: 12.5, lineHeight: 1.4,
+        color: "#1a1a1a", fontWeight: open ? 600 : 450,
+        padding: "3px 4px", background: open ? "#f0f0f0" : "transparent",
+        border: "none", borderRadius: 4, cursor: "pointer",
+        transition: "background 0.12s ease", fontFamily: "inherit",
+      }}
+        onMouseEnter={e => { if (!open) e.currentTarget.style.background = "#f5f5f5"; }}
+        onMouseLeave={e => { e.currentTarget.style.background = open ? "#f0f0f0" : "transparent"; }}
+      >
+        <span style={{ flex: 1 }}>{summary}</span>
+        <span style={{ flexShrink: 0, marginTop: 3 }}><ExpandChevron open={open} size={10} /></span>
+      </button>
+      {alwaysVisible && <div style={{ paddingLeft: 16, marginTop: 3 }}>{alwaysVisible}</div>}
+      {open && (
+        <div style={{ paddingLeft: 16, paddingTop: 6, paddingBottom: 4, borderLeft: "2px solid #e5e7eb", marginLeft: 4, marginTop: 4 }}>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* Stage1Cell */
+function Stage1Cell({ ind }) {
+  const l2 = ind.layer2;
+  return (
+    <ExpandRow
+      summary={l2.summary}
+      alwaysVisible={
+        <div style={{ fontSize: 11, color: "#555" }}>
+          <span style={{ fontWeight: 600 }}>Update frequency:</span> {l2.partnerUpdates}
+        </div>
+      }
+    >
+      <p style={{ fontSize: 12, color: "#444", lineHeight: 1.55, margin: "0 0 8px" }}>{l2.detail}</p>
+      <div style={{ marginTop: 6 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: "#555", marginBottom: 3, textTransform: "uppercase", letterSpacing: "0.04em" }}>References</div>
+        {l2.references.map((ref, i) => (
+          <div key={i} style={{ display: "flex", gap: 5, fontSize: 11.5, marginBottom: 2, alignItems: "flex-start" }}>
+            <span style={{ color: "#9ca3af", fontSize: 14, lineHeight: 1, flexShrink: 0, marginTop: 1 }}>·</span>
+            <a href={ref.url} target="_blank" rel="noopener" style={{ color: "#1d4ed8", textDecoration: "none", lineHeight: 1.4, borderBottom: "1px dotted #93c5fd" }}>
+              {ref.label} ↗
+            </a>
+          </div>
+        ))}
+      </div>
+    </ExpandRow>
+  );
+}
+
+/* Stage2Cell */
+function Stage2Cell({ ind }) {
+  const l2 = ind.layer2;
+  const lagCfg = LAG_CONFIG[l2.lagStatus] || LAG_CONFIG.good;
+  const divCfg = DIVERGENCE_CONFIG[l2.divergenceLevel];
+  return (
+    <ExpandRow
+      summary={l2.scraperSummary}
+      alwaysVisible={
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 2 }}>
+          <span style={{ fontSize: 10.5, padding: "1px 6px", borderRadius: 3, background: lagCfg.bg, color: lagCfg.color, border: `1px solid ${lagCfg.bg}`, fontWeight: 500 }}>
+            lag: {l2.maxLag}
+          </span>
+          {divCfg && (
+            <span style={{ fontSize: 10.5, padding: "1px 6px", borderRadius: 3, background: divCfg.bg, color: divCfg.color, border: `1px solid ${divCfg.border}`, fontWeight: 500 }}>
+              {divCfg.icon} {divCfg.label}
+            </span>
+          )}
+        </div>
+      }
+    >
+      {/* Scraper cadence */}
+      <div style={{ fontSize: 12, color: "#444", marginBottom: 5 }}>
+        <span style={{ fontWeight: 500, color: "#555" }}>Scraper cadence: </span>
+        {l2.scraperCadenceLink
+          ? <a href={l2.scraperCadenceLink} target="_blank" rel="noopener" style={{ color: "#1d4ed8", textDecoration: "none", borderBottom: "1px dotted #93c5fd" }}>{l2.scraperCadence} ↗</a>
+          : <span>{l2.scraperCadence}</span>
+        }
+      </div>
+      {/* Lag note */}
+      {l2.lagNote && (
+        <div style={{ fontSize: 11.5, color: "#555", lineHeight: 1.5, marginBottom: 5, fontStyle: "italic" }}>{l2.lagNote}</div>
+      )}
+      {/* Divergence */}
+      {divCfg && l2.divergenceNote && (
+        <div style={{ background: divCfg.bg, borderRadius: 4, padding: "6px 8px", border: `1px solid ${divCfg.border}`, marginBottom: 5 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: divCfg.color, marginBottom: 2 }}>{divCfg.icon} {divCfg.label}</div>
+          <div style={{ fontSize: 11.5, color: "#444", lineHeight: 1.5 }}>
+            {l2.divergenceNote}{" "}
+            {l2.divergenceLink && (
+              <a href={l2.divergenceLink} target="_blank" rel="noopener" style={{ color: "#1d4ed8", textDecoration: "none", borderBottom: "1px dotted #93c5fd" }} onClick={e => e.stopPropagation()}>
+                {l2.divergenceLinkLabel} ↗
+              </a>
+            )}
+          </div>
+        </div>
+      )}
+      {/* Scraper link */}
+      {ind.repo && (
+        <div style={{ fontSize: 10.5, color: "#888", marginTop: 2 }}>
+          Scraper:{" "}
+          <a href={`https://github.com/OCHA-DAP/${ind.repo}`} target="_blank" rel="noopener"
+            style={{ color: "#555", textDecoration: "none", borderBottom: "1px dotted #aaa", fontFamily: "monospace" }}>
+            {ind.repo} ↗
+          </a>
+        </div>
+      )}
+    </ExpandRow>
+  );
+}
+
+function TransformRowLabel({ transform, count, bg }) {
+  const [open, setOpen] = useState(false);
+  const IconFn = ICONS[transform.icon];
+  return (
+    <td style={{ position: "sticky", left: 0, zIndex: 4, background: bg, padding: 0, borderBottom: "1px solid #e5e7eb", borderRight: "2px solid #e5e7eb" }}>
+      <button onClick={() => setOpen(!open)} style={{
+        display: "flex", alignItems: "center", gap: 6,
+        width: "100%", textAlign: "left", padding: "8px 12px",
+        background: "none", border: "none", cursor: "pointer", fontFamily: "inherit",
+      }}>
+        <ExpandChevron open={open} size={10} />
+        <span style={{ display: "flex", flexShrink: 0 }}>{IconFn("#6366f1")}</span>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 550, color: "#222", lineHeight: 1.3 }}>
+            {transform.name}
+          </div>
+          <div style={{ fontSize: 11, color: "#666", marginTop: 1 }}>{count} of 13 indicators</div>
+        </div>
+      </button>
+      {open && <div style={{ padding: "0 12px 8px 40px", fontSize: 12, color: "#444", lineHeight: 1.5 }}>{transform.desc}</div>}
+    </td>
+  );
+}
+
+/* ───────── FILTER BAR ───────── */
+function FilterBar({ filters, activeFilters, onToggle, onReset }) {
+  const pl = filters.filter(f => f.group === "pipeline");
+  const ql = filters.filter(f => f.group === "quality");
+  const Pill = ({ f }) => {
+    const active = activeFilters.includes(f.id);
+    return (
+      <button onClick={() => onToggle(f.id)} style={{
+        fontSize: 11.5, padding: "3px 10px", borderRadius: 12,
+        background: active ? f.color : "#fff", color: active ? "#fff" : f.color,
+        border: `1px solid ${f.color}`, cursor: "pointer", fontFamily: "inherit", fontWeight: 500,
+        transition: "all 0.12s ease", display: "flex", alignItems: "center", gap: 5,
+      }}>
+        {f.dot && <span style={{ width: 7, height: 7, borderRadius: "50%", background: active ? "#fff" : f.color, display: "inline-block", flexShrink: 0 }} />}
+        {f.icon && <span style={{ fontSize: 12 }}>{f.icon}</span>}
+        {f.label} ({f.count})
+      </button>
+    );
+  };
+  return (
+    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", padding: "10px 24px", background: "#f8fafc", borderBottom: "1px solid #e5e7eb" }}>
+      <button onClick={onReset} style={{
+        fontSize: 11.5, padding: "3px 10px", borderRadius: 12,
+        background: activeFilters.length === 0 ? "#1e3a5f" : "#fff",
+        color: activeFilters.length === 0 ? "#fff" : "#555",
+        border: "1px solid " + (activeFilters.length === 0 ? "#1e3a5f" : "#d1d5db"),
+        cursor: "pointer", fontFamily: "inherit", fontWeight: 500, marginRight: 4,
+      }}>All ({filters.reduce((s, f) => s + f.count, 0)})</button>
+      <span style={{ fontSize: 10.5, color: "#888", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>Source type</span>
+      {pl.map(f => <Pill key={f.id} f={f} />)}
+      <div style={{ width: 1, height: 20, background: "#d1d5db", margin: "0 4px" }} />
+      <span style={{ fontSize: 10.5, color: "#888", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>Data flags</span>
+      {ql.map(f => <Pill key={f.id} f={f} />)}
+    </div>
+  );
+}
+
+/* ───────── SIX-STAGE FLOW DIAGRAM ───────── */
+function PipelineFlowDiagram() {
+  const stages = [
+    { n: "1", label: "Partner data production",    owner: "Partner organisation", ownerColor: "#15803d", bg: "#f0fdf4", border: "#86efac", desc: "Partner collects, curates, and maintains primary data. OCHA has no visibility into this layer." },
+    { n: "2", label: "Publication to HDX or API",  owner: "Partner or OCHA",      ownerColor: "#1d4ed8", bg: "#eff6ff", border: "#93c5fd", desc: "Partner deposits files on HDX or exposes a public API. HAPI scrapers read from here." },
+    { n: "3", label: "HAPI standardisation",       owner: "HAPI team (OCHA)",     ownerColor: "#7e22ce", bg: "#faf5ff", border: "#c4b5fd", desc: "Upstream scrapers apply geo alignment, date standardisation, schema mapping, and quality tagging." },
+    { n: "4", label: "HAPI datasets on HDX",       owner: "HAPI team (OCHA)",     ownerColor: "#7e22ce", bg: "#faf5ff", border: "#c4b5fd", desc: "12 global intermediate datasets published to HDX with warning/error flags for transparency." },
+    { n: "5", label: "Database loading",           owner: "HAPI team (OCHA)",     ownerColor: "#7e22ce", bg: "#faf5ff", border: "#c4b5fd", desc: "Standardised data loaded into PostgreSQL: error rows filtered, location references linked, connector rows created." },
+    { n: "6", label: "API and CSV outputs",        owner: "HAPI team (OCHA)",     ownerColor: "#7e22ce", bg: "#faf5ff", border: "#c4b5fd", desc: "PostgreSQL database serves the REST API. Per-country CSV exports published to HDX." },
+  ];
+  return (
+    <div style={{ overflowX: "auto", paddingBottom: 4 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 0, minWidth: 840, alignItems: "stretch" }}>
+        {stages.map((s, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "stretch" }}>
+            <div style={{
+              flex: 1, background: s.bg, border: `1.5px solid ${s.border}`,
+              borderRadius: 8, padding: "10px 10px 10px",
+              display: "flex", flexDirection: "column",
+              margin: "0 2px",
+            }}>
+              <div style={{ width: 22, height: 22, borderRadius: "50%", background: s.ownerColor, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0, marginBottom: 5 }}>{s.n}</div>
+              <div style={{ fontSize: 12, fontWeight: 650, color: "#111", lineHeight: 1.3, marginBottom: 5, flex: 1 }}>{s.label}</div>
+              <div style={{ fontSize: 11, color: "#555", lineHeight: 1.45, marginBottom: 8 }}>{s.desc}</div>
+              <div style={{ marginTop: "auto" }}>
+                <span style={{ fontSize: 9.5, padding: "2px 7px", borderRadius: 8, background: s.ownerColor + "18", color: s.ownerColor, border: `1px solid ${s.ownerColor}33`, fontWeight: 600, lineHeight: 1.5, display: "inline-block" }}>{s.owner}</span>
+              </div>
+            </div>
+            {i < stages.length - 1 && (
+              <div style={{ display: "flex", alignItems: "center", flexShrink: 0, padding: "0 1px" }}>
+                <svg width="16" height="14" viewBox="0 0 16 14" fill="none">
+                  <path d="M2 7H12M7 2L12 7L7 12" stroke="#9ca3af" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 16, marginTop: 12, flexWrap: "wrap" }}>
+        {[{ color: "#15803d", label: "Partner organisation" }, { color: "#1d4ed8", label: "Partner or OCHA" }, { color: "#7e22ce", label: "HAPI team (OCHA)" }].map((k, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <div style={{ width: 10, height: 10, borderRadius: "50%", background: k.color }} />
+            <span style={{ fontSize: 11, color: "#555" }}>{k.label}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ───────── MAIN ───────── */
+function HAPIPipelineViz() {
+  const [activeFilters, setActiveFilters] = useState([]);
+  const toggleFilter = (id) => setActiveFilters(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+
+  const filterDefs = [
+    { id: "partner_api",     group: "pipeline", label: "Partner API",            color: "#1d4ed8", dot: true,  count: INDICATORS.filter(i => i.sourceType === "partner_api").length },
+    { id: "partner_hdx",     group: "pipeline", label: "Partner on HDX",         color: "#15803d", dot: true,  count: INDICATORS.filter(i => i.sourceType === "partner_hdx" || i.sourceType === "partner_ext").length },
+    { id: "hdx_dataset",     group: "pipeline", label: "HDX dataset",            color: "#b45309", dot: true,  count: INDICATORS.filter(i => i.sourceType === "hdx_dataset").length },
+    { id: "ocha_managed",    group: "pipeline", label: "OCHA managed",           color: "#7e22ce", dot: true,  count: INDICATORS.filter(i => i.sourceType === "ocha_managed").length },
+    { id: "div_significant", group: "quality",  label: "Significant divergence", color: "#92400e", icon: "⚡", count: INDICATORS.filter(i => i.layer2.divergenceLevel === "significant").length },
+    { id: "div_moderate",    group: "quality",  label: "Moderate divergence",    color: "#1e3a5f", icon: "ⓘ", count: INDICATORS.filter(i => i.layer2.divergenceLevel === "moderate").length },
+    { id: "lag_unknown",     group: "quality",  label: "Lag not confirmed",      color: "#b45309", icon: "⏱", count: INDICATORS.filter(i => i.layer2.lagStatus === "unknown").length },
+  ];
+
+  const filtered = INDICATORS.filter(ind => {
+    if (activeFilters.length === 0) return true;
+    return activeFilters.some(f => {
+      if (f === "partner_hdx")     return ind.sourceType === "partner_hdx" || ind.sourceType === "partner_ext";
+      if (f === "div_significant") return ind.layer2.divergenceLevel === "significant";
+      if (f === "div_moderate")    return ind.layer2.divergenceLevel === "moderate";
+      if (f === "lag_unknown")     return ind.layer2.lagStatus === "unknown";
+      return ind.sourceType === f;
+    });
+  });
+
+  /* Column widths — indicator col 115px, stage cols 230px */
+  const CW = [115, 230, 230, 230, 230, 230, 230];
+  const totalW = CW.reduce((a, b) => a + b, 0);
+
+  const COL_HDRS = [
+    { label: "Indicator",  sub: "Source · Level",               w: CW[0], sticky: true, n: null,  bg: "#f1f5f9", border: "#cbd5e1", ownerColor: "#475569" },
+    { label: "Stage 1",    sub: "Partner data production",       w: CW[1],               n: "1",   bg: "#f0fdf4", border: "#86efac", ownerColor: "#15803d" },
+    { label: "Stage 2",    sub: "Publication to HDX or API",     w: CW[2],               n: "2",   bg: "#eff6ff", border: "#93c5fd", ownerColor: "#1d4ed8" },
+    { label: "Stage 3",    sub: "HAPI standardisation",          w: CW[3],               n: "3",   bg: "#faf5ff", border: "#c4b5fd", ownerColor: "#7e22ce" },
+    { label: "Stage 4",    sub: "HAPI intermediate dataset",     w: CW[4],               n: "4",   bg: "#faf5ff", border: "#c4b5fd", ownerColor: "#7e22ce" },
+    { label: "Stage 5",    sub: "Database loading",              w: CW[5],               n: "5",   bg: "#faf5ff", border: "#c4b5fd", ownerColor: "#7e22ce" },
+    { label: "Stage 6",    sub: "API and CSV outputs",           w: CW[6],               n: "6",   bg: "#faf5ff", border: "#c4b5fd", ownerColor: "#7e22ce" },
+  ];
+
+  return (
+    <div style={{ fontFamily: "'Instrument Sans', 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", background: "#fff", minHeight: "100vh", maxWidth: 1500, margin: "0 auto" }}>
+      <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+      <style>{`* { box-sizing: border-box; } .mono { font-family: 'SF Mono','Fira Code','Consolas',monospace; } a.src { color: #1d4ed8; text-decoration: none; } a.src:hover { text-decoration: underline; }`}</style>
+
+      {/* Header */}
+      <div style={{ background: "#f8fafc", borderBottom: "2px solid #e2e8f0", padding: "28px 24px 22px" }}>
+        <div style={{ maxWidth: 860 }}>
+          <h1 style={{ fontSize: 22, fontWeight: 700, margin: "0 0 8px", letterSpacing: "-0.3px", color: "#111" }}>How HAPI standardises data</h1>
+          <p style={{ fontSize: 14, fontWeight: 600, color: "#333", margin: 0, lineHeight: 1.6 }}>
+            The Humanitarian API brings together data from 13 indicators across 4 source types into a single, consistent format.
+            The pipeline involves six stages across three layers of ownership. This document traces the full journey.
+          </p>
+        </div>
+      </div>
+
+      {/* Section 1 */}
+      <Section title="The six stages of the pipeline" subtitle="From partner data production to HAPI outputs — who owns each stage" defaultOpen={true}>
+        <div style={{ padding: "12px 24px 20px" }}>
+          <p style={{ fontSize: 13.5, fontWeight: 600, color: "#333", margin: "0 0 18px", lineHeight: 1.6, maxWidth: 860 }}>
+            Before any data reaches the HAPI API, it passes through six stages owned by up to three different parties.
+            The first two stages precede HAPI's own work — they represent decisions and transformations that OCHA neither controls nor can always verify.
+          </p>
+          <PipelineFlowDiagram />
+        </div>
+      </Section>
+
+      {/* Section 2: Pipeline table */}
+      <Section title="Pipeline by indicator" subtitle="The full journey for each of the 13 indicators across all six stages" defaultOpen={true}>
+        <div>
+          <div style={{ padding: "4px 24px 10px" }}>
+            <p style={{ fontSize: 13.5, fontWeight: 600, color: "#333", margin: "0 0 10px", lineHeight: 1.55, maxWidth: 860 }}>
+              Click any item in the Stage 1 or Stage 2 columns to expand partner pipeline detail. Click any process name in Stage 3 to expand its description. Scroll right to see all stages.
+            </p>
+          </div>
+          <FilterBar filters={filterDefs} activeFilters={activeFilters} onToggle={toggleFilter} onReset={() => setActiveFilters([])} />
+          {filtered.length === 0 && <div style={{ padding: "24px", textAlign: "center", color: "#888", fontSize: 13 }}>No indicators match the current filters.</div>}
+          {filtered.length > 0 && (
+            /* KEY FIX: overflow: auto on BOTH axes + maxHeight so sticky th works within this scroll container */
+            <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "75vh", borderTop: "1px solid #e5e7eb" }}>
+              <table style={{ borderCollapse: "collapse", width: totalW, minWidth: totalW, tableLayout: "fixed" }}>
+                <thead>
+                  <tr>
+                    {COL_HDRS.map((col, i) => (
+                      <th key={i} style={{
+                        position: "sticky", top: 0,
+                        ...(col.sticky ? { left: 0, zIndex: 15 } : { zIndex: 10 }),
+                        background: col.bg,
+                        padding: "9px 10px 8px", textAlign: "left", verticalAlign: "top",
+                        width: col.w, minWidth: col.w,
+                        borderBottom: `2px solid ${col.border}`,
+                        borderRight: i < COL_HDRS.length - 1 ? `1px solid ${col.border}` : "none",
+                      }}>
+                        {col.n ? (
+                          <>
+                            <div style={{ width: 22, height: 22, borderRadius: "50%", background: col.ownerColor, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0, marginBottom: 5 }}>{col.n}</div>
+                            <div style={{ fontSize: 12, fontWeight: 650, color: "#111", lineHeight: 1.3, marginBottom: 5 }}>{col.label}</div>
+                          </>
+                        ) : (
+                          <div style={{ fontSize: 12, fontWeight: 650, color: "#111", lineHeight: 1.3, marginBottom: 5 }}>{col.label}</div>
+                        )}
+                        {col.sub && <div style={{ fontSize: 9.5, padding: "2px 7px", borderRadius: 8, background: col.ownerColor + "18", color: col.ownerColor, border: `1px solid ${col.ownerColor}33`, fontWeight: 600, lineHeight: 1.5, display: "inline-block" }}>{col.sub}</div>}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((ind) => {
+                    const st = SOURCE_TYPES[ind.sourceType];
+                    const rowBg = ind.isException ? "#fffdf5" : "#fff";
+                    const rowBgH = ind.isException ? "#fffbee" : "#f8fafc";
+                    return (
+                      <tr key={ind.id}
+                        onMouseEnter={e => e.currentTarget.querySelectorAll("td").forEach(td => td.style.background = rowBgH)}
+                        onMouseLeave={e => e.currentTarget.querySelectorAll("td").forEach(td => { td.style.background = td.dataset.bg || rowBg; })}
+                      >
+                        {/* Indicator — sticky left */}
+                        <td data-bg={rowBg} style={{ padding: "9px 10px", borderBottom: "1px solid #e5e7eb", verticalAlign: "top", position: "sticky", left: 0, zIndex: 4, background: rowBg, borderRight: "2px solid #e5e7eb", width: CW[0], minWidth: CW[0] }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
+                            <div style={{ width: 8, height: 8, borderRadius: "50%", background: st.color, flexShrink: 0, boxShadow: `0 0 0 2px ${st.bg}` }} />
+                            <span style={{ fontSize: 13, fontWeight: 600, color: "#111", lineHeight: 1.25 }}>{ind.name}</span>
+                          </div>
+                          <div style={{ fontSize: 11.5, color: "#555", paddingLeft: 14 }}>
+                            {ind.sourceUrl ? <a href={ind.sourceUrl} target="_blank" rel="noopener" className="src">{ind.partner}</a> : ind.partner}
+                            {" · "}{ind.adminLevel}
+                          </div>
+                          {ind.note && <div style={{ fontSize: 11, color: "#92600e", paddingLeft: 14, marginTop: 3, fontStyle: "italic", lineHeight: 1.35 }}>{ind.note}</div>}
+                        </td>
+
+                        {/* Stage 1 */}
+                        <td data-bg={rowBg} style={{ padding: "9px 10px", borderBottom: "1px solid #e5e7eb", verticalAlign: "top", background: rowBg, width: CW[1], minWidth: CW[1] }}>
+                          <Stage1Cell ind={ind} />
+                        </td>
+
+                        {/* Stage 2 */}
+                        <td data-bg={rowBg} style={{ padding: "9px 10px", borderBottom: "1px solid #e5e7eb", verticalAlign: "top", background: rowBg, width: CW[2], minWidth: CW[2] }}>
+                          <Stage2Cell ind={ind} />
+                        </td>
+
+                        {/* Stage 3 — HAPI processes */}
+                        <td data-bg={rowBg} style={{ padding: "6px 6px", borderBottom: "1px solid #e5e7eb", verticalAlign: "top", background: rowBg, width: CW[3], minWidth: CW[3] }}>
+                          {ind.isException && <div style={{ fontSize: 11, color: "#92600e", marginBottom: 3, fontWeight: 500, fontStyle: "italic" }}>Bypasses standard upstream</div>}
+                          {ind.processes.map((p, j) => (
+                            <ProcessItem key={j} label={p.name} icon={p.icon} color={st.color}>{p.desc}</ProcessItem>
+                          ))}
+                        </td>
+
+                        {/* Stage 4 — HAPI dataset */}
+                        <td data-bg={rowBg} style={{ padding: "9px 10px", borderBottom: "1px solid #e5e7eb", verticalAlign: "top", background: rowBg, width: CW[4], minWidth: CW[4] }}>
+                          {ind.hapiDataset
+                            ? <div>
+                                <a href={`https://data.humdata.org/dataset/${ind.hapiDataset}`} target="_blank" rel="noopener" style={{ fontSize: 10.5, color: "#1d4ed8", wordBreak: "break-all", textDecoration: "none", lineHeight: 1.4, fontFamily: "monospace" }}>{ind.hapiDataset}</a>
+                                <div style={{ fontSize: 11.5, color: "#555", marginTop: 5, lineHeight: 1.35 }}>Includes warning + error flags</div>
+                              </div>
+                            : <div style={{ fontSize: 12, color: "#92600e", fontStyle: "italic", lineHeight: 1.4 }}>No intermediate dataset. Direct to DB.</div>
+                          }
+                        </td>
+
+                        {/* Stage 5 — DB loading */}
+                        <td data-bg={rowBg} style={{ padding: "9px 10px", borderBottom: "1px solid #e5e7eb", verticalAlign: "top", background: rowBg, width: CW[5], minWidth: CW[5] }}>
+                          {ind.dbSteps.map((step, j) => (
+                            <div key={j} style={{ fontSize: 12, color: "#333", lineHeight: 1.4, marginBottom: 3, display: "flex", alignItems: "flex-start", gap: 5 }}>
+                              <span style={{ color: "#999", fontSize: 7, marginTop: 4, flexShrink: 0 }}>●</span>
+                              <span>{DB_LABELS[step]}</span>
+                            </div>
+                          ))}
+                        </td>
+
+                        {/* Stage 6 — Outputs */}
+                        <td data-bg={rowBg} style={{ padding: "9px 10px", borderBottom: "1px solid #e5e7eb", verticalAlign: "top", background: rowBg, width: CW[6], minWidth: CW[6] }}>
+                          <div style={{ marginBottom: 7 }}>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: "#1d4ed8", marginBottom: 2 }}>REST API</div>
+                            <code className="mono" style={{ fontSize: 10.5, color: "#333", background: "#f1f5f9", padding: "2px 5px", borderRadius: 3, wordBreak: "break-all", lineHeight: 1.35, display: "inline-block" }}>{ind.endpoint}</code>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: "#15803d", marginBottom: 2 }}>CSV on HDX</div>
+                            <div style={{ fontSize: 12, color: "#333", lineHeight: 1.35 }}>{ind.csvName} for &#123;country&#125;</div>
+                            <div className="mono" style={{ fontSize: 10.5, color: "#555", marginTop: 2 }}>hdx-hapi-&#123;iso3&#125;</div>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </Section>
+
+      {/* Section 3: Transformation matrix */}
+      <Section title="What standardisation involves" subtitle="12 types of transformation across 13 indicators — Stage 3 (HAPI) only" defaultOpen={true}>
+        <div style={{ padding: "4px 24px 20px" }}>
+          <p style={{ fontSize: 13.5, fontWeight: 600, color: "#333", margin: "0 0 14px", lineHeight: 1.6, maxWidth: 860 }}>
+            This matrix covers Stage 3 only — HAPI's own standardisation work. Numerical values are never changed. All transformations apply to structural fields: location codes, date formats, category labels, sector names, and organisation identifiers.
+          </p>
+          <div style={{ display: "flex", gap: 20, marginBottom: 14, flexWrap: "wrap", padding: "8px 12px", background: "#f8f9fa", borderRadius: 6, border: "1px solid #e5e7eb" }}>
+            {[
+              { bg: "#dcfce7", icon: true,   label: "Applies (expand row name for detail)" },
+              { bg: "#eff6ff", text: "Aa",   label: "Applies with a specific variant (described in cell)" },
+              { bg: "#f9fafb", border: true, label: "Does not apply" },
+            ].map((item, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <div style={{ width: 20, height: 20, borderRadius: 3, background: item.bg, border: item.border ? "1px solid #e5e7eb" : undefined, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  {item.icon ? <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2.5 6.5L5 9L9.5 3.5" stroke="#15803d" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg> : item.text ? <span style={{ fontSize: 8, color: "#374151", fontWeight: 600 }}>{item.text}</span> : null}
+                </div>
+                <span style={{ fontSize: 12.5, color: "#333" }}>{item.label}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "70vh", border: "1px solid #e5e7eb", borderRadius: 6 }}>
+            <table style={{ borderCollapse: "collapse", minWidth: 1650 }}>
+              <thead>
+                <tr>
+                  <th style={{ position: "sticky", top: 0, left: 0, zIndex: 15, background: "#faf5ff", padding: "8px 12px", fontSize: 12, fontWeight: 700, color: "#111", textAlign: "left", width: 220, minWidth: 220, borderBottom: "2px solid #c4b5fd", borderRight: "2px solid #c4b5fd" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                      <div style={{ width: 20, height: 20, borderRadius: "50%", background: "#7e22ce", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10.5, fontWeight: 700, flexShrink: 0 }}>3</div>
+                      <span>Transformation type</span>
+                    </div>
+                    <div style={{ fontSize: 10.5, color: "#7e22ce", fontWeight: 500, paddingLeft: 26 }}>HAPI standardisation · click row to expand</div>
+                  </th>
+                  {INDICATORS.map((ind, i) => {
+                    const st = SOURCE_TYPES[ind.sourceType];
+                    const short = ind.name.length > 12 ? ind.name.split(" ")[0] : ind.name;
+                    return (
+                      <th key={i} style={{ position: "sticky", top: 0, zIndex: 10, background: "#faf5ff", padding: "7px 5px", fontSize: 11, fontWeight: 600, color: "#111", textAlign: "center", width: 110, minWidth: 110, borderBottom: "2px solid #c4b5fd", borderLeft: "1px solid #e9d5ff", lineHeight: 1.25 }}>
+                        <div>{short}</div>
+                        <div style={{ width: 7, height: 7, borderRadius: "50%", background: st.color, margin: "4px auto 0" }} />
+                      </th>
+                    );
+                  })}
+                </tr>
+              </thead>
+              <tbody>
+                {TRANSFORM_TYPES.map((transform, ti) => {
+                  const count = INDICATORS.filter(ind => transform.indicators[ind.id] != null).length;
+                  const bg = ti % 2 === 0 ? "#fff" : "#fafafa";
+                  return (
+                    <tr key={ti}>
+                      <TransformRowLabel transform={transform} count={count} bg={bg} />
+                      {INDICATORS.map((ind, ii) => {
+                        const val = transform.indicators[ind.id];
+                        const hasVal = val != null;
+                        const isSimple = val === "✓";
+                        return (
+                          <td key={ii} style={{ padding: "7px 5px", borderBottom: "1px solid #e5e7eb", borderLeft: "1px solid #f0f0f0", background: hasVal ? (isSimple ? "#dcfce7" : "#eff6ff") : bg, textAlign: "center", verticalAlign: "middle" }}>
+                            {isSimple
+                              ? <svg width="14" height="14" viewBox="0 0 12 12" fill="none" style={{ display: "block", margin: "0 auto" }}><path d="M2.5 6.5L5 9L9.5 3.5" stroke="#15803d" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                              : hasVal
+                                ? <div style={{ fontSize: 10, color: "#374151", lineHeight: 1.3, fontWeight: 500 }}>{val}</div>
+                                : null
+                            }
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </Section>
+
+      {/* Section 4: How this analysis was developed */}
+      <Section title="How this analysis was developed" subtitle="Sources, methods, and confidence levels" defaultOpen={true}>
+        <div style={{ padding: "4px 24px 28px", maxWidth: 860 }}>
+          <p style={{ fontSize: 13.5, fontWeight: 600, color: "#333", margin: "0 0 20px", lineHeight: 1.6 }}>
+            This visualisation was built by systematically examining the technical evidence available in public sources — principally the HAPI GitHub organisation, the HDX platform, and the HAPI API documentation. No proprietary or internal OCHA systems were accessed. The analysis represents what can be observed from outside the pipeline, supplemented by reasonable inference where direct evidence was not available.
+          </p>
+
+          {/* Source types */}
+          <div style={{ marginBottom: 24 }}>
+            <div style={{ fontSize: 13, fontWeight: 650, color: "#111", marginBottom: 12 }}>What was examined</div>
+            {[
+              {
+                icon: "⌥",
+                color: "#1d4ed8",
+                bg: "#eff6ff",
+                border: "#93c5fd",
+                title: "GitHub repositories (OCHA-DAP organisation)",
+                body: "The primary technical source. Each of the 13 upstream scraper repositories — for example hdx-scraper-acled, hdx-scraper-fts, hdx-scraper-iom-dtm — was reviewed. This included the Python source code (to understand what transformations are applied), the GitHub Actions workflow files (to determine how frequently each scraper runs), and commit histories and README files (to identify any known issues, inactive processes, or special handling). The central hapi-pipelines-prod repository, which coordinates loading standardised data into the PostgreSQL database, was also reviewed.",
+              },
+              {
+                icon: "⬡",
+                color: "#15803d",
+                bg: "#f0fdf4",
+                border: "#86efac",
+                title: "HDX (Humanitarian Data Exchange)",
+                body: "The 12 HAPI intermediate datasets published on HDX were reviewed to understand dataset naming conventions, the warning and error flag columns included for transparency, and the relationship between partner-published datasets and HAPI's own outputs. Partner organisation pages on HDX were also checked to understand how data is deposited and at what frequency.",
+              },
+              {
+                icon: "◈",
+                color: "#7e22ce",
+                bg: "#faf5ff",
+                border: "#c4b5fd",
+                title: "HAPI API documentation and endpoints",
+                body: "The public HAPI API documentation was used to verify the structure of the outputs — which endpoints exist, what fields are exposed, and how data is organised at country level. This helped confirm what is and is not retained as data moves from partner sources through to the final API response.",
+              },
+              {
+                icon: "◎",
+                color: "#b45309",
+                bg: "#fffbeb",
+                border: "#cbd5e1",
+                title: "Partner API and data documentation",
+                body: "Where partners publish their own technical documentation — for example ACLED's codebook, the FTS API reference, and the DTM API documentation — these were reviewed to understand what data is available upstream and how it compares to what HAPI ultimately exposes. This comparison is the basis for the divergence assessments in the pipeline table.",
+              },
+            ].map((item, i) => (
+              <div key={i} style={{ display: "flex", gap: 12, marginBottom: 12 }}>
+                <div style={{ width: 32, height: 32, borderRadius: 6, background: item.bg, border: `1.5px solid ${item.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, color: item.color, flexShrink: 0, marginTop: 1 }}>{item.icon}</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 650, color: "#111", marginBottom: 3 }}>{item.title}</div>
+                  <div style={{ fontSize: 13, color: "#555", lineHeight: 1.6 }}>{item.body}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Confidence levels */}
+          <div style={{ marginBottom: 24 }}>
+            <div style={{ fontSize: 13, fontWeight: 650, color: "#111", marginBottom: 10 }}>Confidence levels</div>
+            <p style={{ fontSize: 13.5, color: "#444", margin: "0 0 12px", lineHeight: 1.6, maxWidth: 700 }}>
+              Each piece of information in this visualisation carries one of three confidence markers, visible in the References section of each indicator row.
+            </p>
+            {[
+              { mark: "✓", label: "Confirmed", color: "#15803d", bg: "#f0fdf4", border: "#86efac", desc: "Directly evidenced by source code, workflow configuration files, or official documentation. The claim can be verified by anyone with access to the same public sources." },
+              { mark: "~", label: "Inferred", color: "#b45309", bg: "#fffbeb", border: "#e5e7eb", desc: "Based on consistent patterns observed across multiple repositories or datasets, but not explicitly stated in documentation. For example, scraper cadence for some indicators was inferred from workflow schedule expressions rather than a published statement." },
+              { mark: "?", label: "Not publicly documented", color: "#6b7280", bg: "#f9fafb", border: "#e5e7eb", desc: "The information could not be confirmed from public sources. This typically applies to partner-side processes — how a partner collects, cleans, or approves data before publication — which are internal to the partner organisation and not visible from outside." },
+            ].map((item, i) => (
+              <div key={i} style={{ display: "flex", gap: 10, marginBottom: 8, alignItems: "flex-start" }}>
+                <div style={{ width: 26, height: 26, borderRadius: 4, background: item.bg, border: `1px solid ${item.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: item.color, flexShrink: 0 }}>{item.mark}</div>
+                <div style={{ flex: 1 }}>
+                  <span style={{ fontSize: 13, fontWeight: 650, color: item.color }}>{item.label} — </span>
+                  <span style={{ fontSize: 13, color: "#555", lineHeight: 1.6 }}>{item.desc}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Limitations */}
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ fontSize: 13, fontWeight: 650, color: "#111", marginBottom: 10 }}>Known limitations</div>
+            <p style={{ fontSize: 13.5, color: "#444", margin: "0 0 10px", lineHeight: 1.6, maxWidth: 700 }}>
+              Three points should be kept in mind when interpreting this analysis.
+            </p>
+            {[
+              { title: "Partner-side processes are largely opaque", body: "Stages 1 and 2 — partner data production and publication — are outside HAPI's control and often outside its visibility. How individual partners collect, validate, and approve data before it reaches HDX or their API is generally not documented in public sources. The summaries in this visualisation are based on partner websites, published methodology notes, and codebooks where available, but should not be taken as a complete account of any partner's internal process." },
+              { title: "Three automated schedulers are currently inactive", body: "The GitHub Actions workflows for IOM DTM (hdx-scraper-iom-dtm), IPC (hdx-scraper-ipc), and HNO (hdx-scraper-hno) have their automated schedules commented out, meaning these scrapers run only when manually triggered. This was observed in the workflow configuration files at the time of analysis and should be verified with the HAPI technical team before drawing conclusions about update frequency for those indicators." },
+              { title: "Code reflects a point in time", body: "GitHub repositories change. The transformation logic, scheduling, and data handling described here reflect the state of the codebase at the time this analysis was conducted. The HAPI team should be consulted to confirm whether any material changes have been made since." },
+            ].map((item, i) => (
+              <div key={i} style={{ paddingLeft: 14, borderLeft: "3px solid #e5e7eb", marginBottom: 12 }}>
+                <div style={{ fontSize: 13, fontWeight: 650, color: "#111", marginBottom: 3 }}>{item.title}</div>
+                <div style={{ fontSize: 13, color: "#555", lineHeight: 1.6 }}>{item.body}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </Section>
+    </div>
+  );
+}
+    ReactDOM.createRoot(document.getElementById('root')).render(<HAPIPipelineViz />);
+  </script>
+</body>
+</html>
