@@ -33,8 +33,8 @@ const INDICATORS = [
       partnerUpdates: "Weekly",
       maxLag: "Up to ~7 days", lagStatus: "moderate",
       lagNote: "ACLED's own API is updated in near real-time. The HDX files HAPI reads are weekly snapshots — new events may not appear in HAPI for up to a week after coding.",
-      divergenceLevel: "significant",
-      divergenceNote: "ACLED also operates its own API which provides individual event records — every incident with precise date, coordinates, and actor details. The HDX files HAPI draws from are monthly aggregated counts. A researcher querying ACLED directly would receive considerably more granular data.",
+      divergenceLevel: "moderate",
+      divergenceNote: "ACLED's own API provides individual event records — every incident with precise date, coordinates, and actor details — which is more granular than the monthly aggregated counts in the HDX files HAPI reads. HAPI uses the files ACLED itself chose to publish on HDX. Users needing event-level detail should query the ACLED API directly.",
       divergenceLink: "https://acleddata.com/acled-api-documentation",
       divergenceLinkLabel: "ACLED API documentation",
       references: [
@@ -74,7 +74,7 @@ const INDICATORS = [
       partnerUpdates: "Live (API)", maxLag: "Hours only", lagStatus: "good",
       lagNote: "Best currency of all 13 indicators. The daily scraper means HAPI funding data is typically no more than 24 hours behind the live FTS API.",
       divergenceLevel: "moderate",
-      divergenceNote: "The FTS API exposes funding flows at a more detailed level — including breakdowns by organisation, sector, and funding type. HAPI extracts plan-level totals only. Users needing sector-level breakdowns should query the FTS API directly.",
+      divergenceNote: "More granular data is available from the FTS API — including breakdowns by organisation, sector, and funding type — and in FTS datasets on HDX. HAPI extracts plan-level totals only. Note: FTS is expected to be decommissioned; its replacement may provide equivalent or improved access.",
       divergenceLink: "https://api.hpc.tools/docs/v2/", divergenceLinkLabel: "FTS API",
       references: [
         { label: "FTS API documentation", url: "https://api.hpc.tools/docs/v2/", confidence: "confirmed" },
@@ -104,11 +104,11 @@ const INDICATORS = [
       summary: "IOM DTM conducts field assessments in displacement-affected countries. The DTM API (v3, 2024) provides aggregated IDP figures — individual assessment records not exposed.",
       partnerLink: "https://dtm.iom.int/data-and-analysis/dtm-api", partnerLinkLabel: "DTM API",
       detail: "IOM's Displacement Tracking Matrix conducts field assessments in displacement-affected countries. The DTM API v3.0 provides aggregated IDP figures at country, Admin 1, and Admin 2 levels. It is explicitly designed to provide 'non-sensitive IDP figures only'.",
-      scraperSummary: "HAPI queries the DTM public API directly. GitHub Actions schedule disabled — migrated to Jenkins.",
-      scraperCadence: "Migrated to Jenkins (schedule not public)",
+      scraperSummary: "HAPI queries the DTM public API directly. Pipeline runs on a Jenkins schedule.",
+      scraperCadence: "Jenkins schedule (not public)",
       scraperCadenceLink: "https://github.com/OCHA-DAP/hdx-scraper-iom-dtm/blob/main/.github/workflows/run-python-script.yaml",
       partnerUpdates: "Variable by country", maxLag: "Unknown — verify with HAPI team", lagStatus: "unknown",
-      lagNote: "The GitHub Actions schedule has been disabled with a note that DTM is now on Jenkins. Actual run frequency is not publicly visible — verify with the HAPI technical team.",
+      lagNote: "The pipeline runs on a Jenkins schedule rather than GitHub Actions. Actual run frequency is not publicly visible — verify with the HAPI technical team.",
       divergenceLevel: "moderate",
       divergenceNote: "The DTM API allows filtering by assessment type, operation, and round — dimensions HAPI aggregates away. A direct API user can retrieve IDP figures broken down by specific assessment operations; HAPI provides consolidated totals. Registration required for a DTM API key.",
       divergenceLink: "https://dtm.iom.int/data-and-analysis/dtm-api", divergenceLinkLabel: "DTM API (registration required)",
@@ -140,11 +140,11 @@ const INDICATORS = [
       summary: "IPC analyses are produced by in-country Technical Working Groups using the IPC Manual 3.1 consensus methodology.",
       partnerLink: "https://data.humdata.org/organization/ipc", partnerLinkLabel: "IPC on HDX",
       detail: "IPC analyses are produced by in-country Technical Working Groups using the IPC Manual 3.1 consensus methodology. The IPC API provides phase classification data including current analysis and two projection periods. A supplementary HDX dataset fills gaps the API does not cover. API key required — available on request from IPC.",
-      scraperSummary: "HAPI uses two IPC sources: the IPC API (primary) and a supplementary HDX dataset. GitHub Actions schedule disabled — migrated to Jenkins.",
-      scraperCadence: "Migrated to Jenkins (schedule not public)",
+      scraperSummary: "HAPI uses two IPC sources: the IPC API (primary) and a supplementary HDX dataset. Pipeline runs on a Jenkins schedule.",
+      scraperCadence: "Jenkins schedule (not public)",
       scraperCadenceLink: "https://github.com/OCHA-DAP/hdx-scraper-ipc/blob/main/.github/workflows/run-python-script.yaml",
       partnerUpdates: "As needed (per analysis cycle)", maxLag: "Unknown — verify with HAPI team", lagStatus: "unknown",
-      lagNote: "The GitHub Actions schedule has been disabled with a commit noting 'Now in Jenkins'. Actual run frequency is not publicly visible. Given that IPC analyses cover active food crisis situations, the currency of this indicator warrants verification with the HAPI team.",
+      lagNote: "The pipeline runs on a Jenkins schedule rather than GitHub Actions. Actual run frequency is not publicly visible. Given that IPC analyses cover active food crisis situations, the currency of this indicator warrants verification with the HAPI team.",
       divergenceLevel: "low",
       divergenceNote: "HAPI applies country-specific geographic configurations to align IPC's reporting areas to standard p-codes. Some IPC data is excluded where alignment is not possible.",
       divergenceLink: "https://data.humdata.org/dataset/global-acute-food-insecurity-country-data", divergenceLinkLabel: "IPC supplementary HDX dataset",
@@ -178,11 +178,11 @@ const INDICATORS = [
       summary: "Humanitarian Needs Overviews are produced by in-country coordination teams and entered into HPC.tools.",
       partnerLink: "https://api.hpc.tools/docs/v1/", partnerLinkLabel: "HPC API documentation",
       detail: "Humanitarian Needs Overviews are produced by in-country coordination teams and entered into HPC.tools. The HPC API provides plan caseload data — people in need, targeted, and reached — by sector and location. A next-generation GraphQL API (v4) is in early development.",
-      scraperSummary: "HAPI queries the HPC API directly. Publicly accessible without credentials since 2017.",
-      scraperCadence: "Daily (21:27 UTC)",
+      scraperSummary: "HAPI queries the HPC API directly. Pipeline runs on a Jenkins schedule. ⚠ Currently broken — part of the upstream HPC API is no longer available.",
+      scraperCadence: "Jenkins schedule (not public)",
       scraperCadenceLink: "https://github.com/OCHA-DAP/hdx-scraper-hno/blob/main/.github/workflows/run-python-script.yaml",
-      partnerUpdates: "Annual (HNO cycle)", maxLag: "Hours only", lagStatus: "good",
-      lagNote: "Well aligned. The daily scraper means any HNO update is picked up within 24 hours. Given the annual source cadence, currency is not a concern.",
+      partnerUpdates: "Annual (HNO cycle)", maxLag: "Unknown — pipeline currently broken", lagStatus: "unknown",
+      lagNote: "The pipeline runs on a Jenkins schedule rather than GitHub Actions. As of early 2026, the HNO scraper is broken — part of the upstream HPC API it depends on is no longer available. Verify current status with the HAPI technical team.",
       divergenceLevel: "low",
       divergenceNote: "The HPC API exposes plan-level metadata and monitoring indicators HAPI does not surface, including plan objectives and inter-sector linkages.",
       divergenceLink: "https://humanitarianaction.info", divergenceLinkLabel: "Humanitarian Action platform",
@@ -221,8 +221,8 @@ const INDICATORS = [
       scraperCadenceLink: "https://github.com/OCHA-DAP/hdx-scraper-wfp-food-prices",
       partnerUpdates: "Monthly", maxLag: "Days only", lagStatus: "good",
       lagNote: "Well aligned — monthly source, monthly scraper.",
-      divergenceLevel: "moderate",
-      divergenceNote: "The DataBridges API provides daily and weekly price aggregations, and includes Alert for Price Spikes (ALPS) indicators not available in HAPI. HAPI extracts monthly prices only.",
+      divergenceLevel: "low",
+      divergenceNote: "The DataBridges API also exposes daily and weekly price aggregations and Alert for Price Spikes (ALPS) indicators not available in HAPI. However, WFP has advised that the weekly and daily endpoints offer no timeliness benefit over monthly — they display the same underlying data at finer frequency and may introduce a processing delay of one to two months. WFP recommends using PriceMonthly, which is what HAPI does.",
       divergenceLink: "https://databridges.vam.wfp.org/", divergenceLinkLabel: "DataBridges API (key required)",
       references: [
         { label: "WFP DataBridges API", url: "https://databridges.vam.wfp.org/", confidence: "confirmed" },
@@ -453,13 +453,13 @@ const INDICATORS = [
   {
     id: "op", name: "Operational Presence", partner: "3W", partnerFull: "OCHA country office 'Who does What Where'",
     adminLevel: "Admin 2", sourceType: "ocha_managed", sourceUrl: null,
-    repo: null,
+    repo: "hdx-scraper-operationalpresence",
     layer2: {
       summary: "Humanitarian organisations report their activities to OCHA country offices. OCHA's FISS unit coordinates 20+ country offices to publish per-country 3W datasets to HDX.",
       partnerLink: "https://data.humdata.org/dataset/ocha-global-humanitarian-operational-presence-who-what-where-3w-portal", partnerLinkLabel: "Global operational presence on HDX",
-      detail: "OCHA's Field Information Services Section (FISS) provides standardised collection templates and coordinates 20+ country offices to publish per-country 3W datasets to HDX. Unlike all other indicators, this data is OCHA-managed end-to-end.",
-      scraperSummary: "HAPI reads 3W HDX datasets via an upstream scraper running monthly. Repository is private — the only HAPI indicator where scraper code cannot be independently verified.",
-      scraperCadence: "Monthly (private repo)", scraperCadenceLink: null,
+      detail: "OCHA's Field Information Services Section (FISS) provides standardised collection templates and coordinates 20+ country offices to publish per-country 3W datasets to HDX. Unlike all other indicators, this data is OCHA-managed end-to-end. The upstream scraper pipeline is partly manual — it is driven by a spreadsheet that combines manual data curation with automated processing steps.",
+      scraperSummary: "HAPI reads 3W HDX datasets via an upstream scraper running monthly. Unlike other indicators, the pipeline is not fully automated — it is driven by a spreadsheet that involves both manual and automated updates.",
+      scraperCadence: "Monthly", scraperCadenceLink: "https://github.com/OCHA-DAP/hdx-scraper-operationalpresence",
       partnerUpdates: "Monthly", maxLag: "Days only", lagStatus: "good",
       lagNote: "Well aligned — monthly source, monthly scraper. Scraper confirmed active from HDX dataset metadata (last run 17 March 2026). Repo is private — behaviour inferred from metadata.",
       divergenceLevel: "none", divergenceNote: null, divergenceLink: null, divergenceLinkLabel: null,
@@ -467,21 +467,22 @@ const INDICATORS = [
         { label: "Global 3W portal", url: "https://3w.unocha.org", confidence: "confirmed" },
         { label: "Global operational presence on HDX", url: "https://data.humdata.org/dataset/ocha-global-humanitarian-operational-presence-who-what-where-3w-portal", confidence: "confirmed" },
         { label: "IM Toolbox 3W documentation", url: "https://humanitarian.atlassian.net/wiki/spaces/imtoolbox/pages/214499412/Who+does+What+Where+3W", confidence: "confirmed" },
+        { label: "HAPI scraper repo (hdx-scraper-operationalpresence)", url: "https://github.com/OCHA-DAP/hdx-scraper-operationalpresence", confidence: "confirmed" },
       ],
     },
     processes: [
-      { name: "Sector and org classification", icon: "tag", desc: "~130 sector name mappings and ~50 org type mappings, both with phonetic fallback for misspelled or variant names. (Inferred from shared library — scraper repo is private.)" },
-      { name: "Geographic alignment", icon: "pin", desc: "Matches location names to common boundary codes at admin levels 1 and 2 using fuzzy matching. (Inferred — scraper repo is private.)" },
-      { name: "Country code resolution", icon: "globe", desc: "Resolves each record to a standard ISO3 country code. (Inferred — scraper repo is private.)" },
-      { name: "Date standardisation", icon: "cal", desc: "Converts reporting dates into standardised reference period start and end dates. (Inferred — scraper repo is private.)" },
-      { name: "Column harmonisation", icon: "tag", desc: "Maps 3W dataset columns into the common HAPI schema. (Inferred — scraper repo is private.)", universal: true },
-      { name: "HRP/GHO flagging", icon: "flag", desc: "Flags whether each country is covered by a Humanitarian Response Plan or Global Humanitarian Overview. (Inferred — scraper repo is private.)" },
-      { name: "Duplicate detection", icon: "dup", desc: "Detects and flags duplicate records. (Inferred — scraper repo is private.)" },
+      { name: "Sector and org classification", icon: "tag", desc: "~130 sector name mappings and ~50 org type mappings, both with phonetic fallback for misspelled or variant names. (Pipeline is partly manual — driven by a spreadsheet combining manual curation with automated processing.)" },
+      { name: "Geographic alignment", icon: "pin", desc: "Matches location names to common boundary codes at admin levels 1 and 2 using fuzzy matching. (Pipeline is partly manual — driven by a spreadsheet combining manual curation with automated processing.)" },
+      { name: "Country code resolution", icon: "globe", desc: "Resolves each record to a standard ISO3 country code. (Pipeline is partly manual — driven by a spreadsheet combining manual curation with automated processing.)" },
+      { name: "Date standardisation", icon: "cal", desc: "Converts reporting dates into standardised reference period start and end dates. (Pipeline is partly manual — driven by a spreadsheet combining manual curation with automated processing.)" },
+      { name: "Column harmonisation", icon: "tag", desc: "Maps 3W dataset columns into the common HAPI schema. (Pipeline is partly manual — driven by a spreadsheet combining manual curation with automated processing.)", universal: true },
+      { name: "HRP/GHO flagging", icon: "flag", desc: "Flags whether each country is covered by a Humanitarian Response Plan or Global Humanitarian Overview. (Pipeline is partly manual — driven by a spreadsheet combining manual curation with automated processing.)" },
+      { name: "Duplicate detection", icon: "dup", desc: "Detects and flags duplicate records. (Pipeline is partly manual — driven by a spreadsheet combining manual curation with automated processing.)" },
       { name: "Quality tagging", icon: "check", desc: "Applies warning and error tags to each record. Error-tagged records are included in intermediate datasets for transparency but filtered before the API.", universal: true },
       { name: "Provenance tracking", icon: "tag", desc: "Links each record back to the specific HDX dataset and resource it came from.", universal: true },
     ],
     hapiDataset: "hdx-hapi-operational-presence", dbSteps: ["error_filter", "link_locations", "connector_rows"],
-    endpoint: "/coordination-context/operational-presence", csvName: "Operational Presence", isException: false, note: "Upstream repo is private — processes inferred",
+    endpoint: "/coordination-context/operational-presence", csvName: "Operational Presence", isException: false, note: "Pipeline partly manual — spreadsheet-driven with manual and automated steps",
   },
 ];
 
@@ -494,7 +495,6 @@ const SOURCE_TYPES = {
 };
 
 const DIVERGENCE_CONFIG = {
-  significant: { color: "#92400e", bg: "#fef3c7", border: "#d97706", icon: "⚡", label: "Significant difference vs source" },
   moderate:    { color: "#1e3a5f", bg: "#e0f2fe", border: "#7dd3fc", icon: "ⓘ", label: "Moderate difference vs source" },
   low:         { color: "#374151", bg: "#f3f4f6", border: "#d1d5db", icon: "ⓘ", label: "Minor difference vs source" },
   none:        null,
@@ -871,7 +871,6 @@ function HAPIPipelineViz() {
     { id: "partner_hdx",     group: "pipeline", label: "Partner on HDX",         color: "#15803d", dot: true,  count: INDICATORS.filter(i => i.sourceType === "partner_hdx" || i.sourceType === "partner_ext").length },
     { id: "hdx_dataset",     group: "pipeline", label: "HDX dataset",            color: "#b45309", dot: true,  count: INDICATORS.filter(i => i.sourceType === "hdx_dataset").length },
     { id: "ocha_managed",    group: "pipeline", label: "OCHA managed",           color: "#7e22ce", dot: true,  count: INDICATORS.filter(i => i.sourceType === "ocha_managed").length },
-    { id: "div_significant", group: "quality",  label: "Significant divergence", color: "#92400e", icon: "⚡", count: INDICATORS.filter(i => i.layer2.divergenceLevel === "significant").length },
     { id: "div_moderate",    group: "quality",  label: "Moderate divergence",    color: "#1e3a5f", icon: "ⓘ", count: INDICATORS.filter(i => i.layer2.divergenceLevel === "moderate").length },
     { id: "lag_unknown",     group: "quality",  label: "Lag not confirmed",      color: "#b45309", icon: "⏱", count: INDICATORS.filter(i => i.layer2.lagStatus === "unknown").length },
   ];
@@ -880,7 +879,6 @@ function HAPIPipelineViz() {
     if (activeFilters.length === 0) return true;
     return activeFilters.some(f => {
       if (f === "partner_hdx")     return ind.sourceType === "partner_hdx" || ind.sourceType === "partner_ext";
-      if (f === "div_significant") return ind.layer2.divergenceLevel === "significant";
       if (f === "div_moderate")    return ind.layer2.divergenceLevel === "moderate";
       if (f === "lag_unknown")     return ind.layer2.lagStatus === "unknown";
       return ind.sourceType === f;
